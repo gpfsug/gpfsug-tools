@@ -9,7 +9,6 @@ OTHERLIB= -lpthread
 CFLAGS = -O -D$(GPFS_TYPE) 
 
 PROGS = mmmkfile
-#PROGS = test
 
 all: $(PROGS)
 debug: CXX += -DDEBUG -g
@@ -21,6 +20,3 @@ clean:
 
 mmmkfile: mmmkfile.C
 	$(CXX) -o mmmkfile $(CFLAGS) $(OTHERINCL) $(OTHERLIB) $(LIB) mmmkfile.C
-
-#test: test.C
-#	$(CXX) -o test $(CFLAGS) $(OTHERINCL) $(OTHERLIB) $(LIB) test.C
