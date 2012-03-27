@@ -34,12 +34,12 @@ unsigned long long chunkSize;
 //char fileName[UCHAR_MAX];
 char *fileName;
 
-typedef struct zeroFillRequest 
+struct thread_data
 {
 	int requestId;
 	long long startBlock;
 	long long fillSize;
-} zeroFillRequest_t;
+};
 
 void
 print_help() 
@@ -85,8 +85,9 @@ void *
 process_request(void *arg)
 {
 	long long bytesWritten;
-    zeroFillRequest_t *zeroFillProcess = (zeroFillRequest_t *)arg;
+    struct thread_data *zeroFillProcess;
 
+	zeroFillProcess = (struct thread_data *) arg;
 
 	fprintf(stdout, "Processing thread %d\n", zeroFillProcess->requestId);
 	
@@ -99,20 +100,7 @@ process_request(void *arg)
 	// print stats
 	//fprintf(stdout, "Thread %d wrote %d bytes in %d seconds (%d MB/sec)", zerofFillRequestProcess, , , );
 
-	// free the thread (thread is detached and does not return state) 	
-	//free(zeroFillProcess);	
-
-	// print status
-	/*if (bytesWritten != zeroFillProcess->fillSize) 
-	{
-		return (TRUE);
-	} 
-	else 
-	{
-		return (FALSE);
-	}*/
 }
-
 
 
 
@@ -202,30 +190,37 @@ main(int argc, char *argv[])
 	
 	// DEFINE A NUMBER OF THREADS
     int rc = 0;
-	int tc = 10;
-	int MAX_THREADS=10;
+	int tCount = 10;
+	int wCount = 0;
+	int MAX_THREADS = 10;
 
-	zeroFillRequest_t *zeroFillRequestProcess;
-	pthread_t *zeroFill_threadprocess;
+	thread_data *zeroFillData;
+	pthread_t zeroFillThreads[MAX_THREADS];
 
-	for (tc=0; tc <= MAX_THREADS; tc++) 
+	for (tCount=0; tCount <= MAX_THREADS; tCount++) 
 	{
-		zeroFillRequestProcess = (zeroFillRequest_t *)malloc(sizeof(zeroFillRequest_t));
-		zeroFillRequestProcess->requestId = tc;
-
+		// create a new struct to pass to the thread
+		zeroFillData = (thread_data *)malloc(sizeof(thread_data));
+		// set the contents of the struct
+		zeroFillData->requestId = tCount;
+		fprintf(stdout, "tc=%d\n", tCount);
 		
 		// spawn the fill thread
-		zeroFill_threadprocess = (pthread_t *)malloc(sizeof(pthread_t));
-		rc = pthread_create(&zeroFill_threadprocess[tc], NULL, process_request, &zeroFillRequestProcess);
+		rc = pthread_create(&zeroFillThreads[tCount], NULL, process_request, (void *) &zeroFillData[tCount]);
 		if (rc) {
 			exit(EXIT_FAILURE);
 		}
-
-		// fire off the thread
-		//pthread_detach(*zeroFillRequestProcess);
-		//free(zerofFill_threadprocess);
 	}
 
+	// Wait for threads to exit */
+	/*for (wCount = 0; wCount <= MAX_THREADS; wCount ++) 
+	{
+		pthread_join(zeroFill_threadprocess[wCount], NULL);
+	}
+
+	printf("Threads completed\n"); */
+	pthread_exit(NULL);
+
     /* Exit nicely */
-	return (0);
+	return (EXIT_SUCCESS);
 }
