@@ -201,19 +201,25 @@ main(int argc, char *argv[])
 
 	
 	// DEFINE A NUMBER OF THREADS
+    int rc = 0;
 	int tc = 10;
 	int MAX_THREADS=10;
 
 	zeroFillRequest_t *zeroFillRequestProcess;
-	pthread_t zeroFill_threadprocess;
+	pthread_t *zeroFill_threadprocess;
 
 	for (tc=0; tc <= MAX_THREADS; tc++) 
 	{
 		zeroFillRequestProcess = (zeroFillRequest_t *)malloc(sizeof(zeroFillRequest_t));
+		zeroFillRequestProcess->requestId = tc;
+
 		
 		// spawn the fill thread
 		zeroFill_threadprocess = (pthread_t *)malloc(sizeof(pthread_t));
-		pthread_create(zeroFill_threadprocess, NULL, process_request, (void *)zeroFill_threadprocess);
+		rc = pthread_create(&zeroFill_threadprocess[tc], NULL, process_request, &zeroFillRequestProcess);
+		if (rc) {
+			exit(EXIT_FAILURE);
+		}
 
 		// fire off the thread
 		//pthread_detach(*zeroFillRequestProcess);
