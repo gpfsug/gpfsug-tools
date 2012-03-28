@@ -34,11 +34,12 @@ unsigned long long chunkSize;
 //char fileName[UCHAR_MAX];
 char *fileName;
 
-struct thread_data
+struct thread_info
 {
-	int requestId;
-	long long startBlock;
-	long long fillSize;
+	pthread_t thread_id;
+	int thread_num;
+	long long start_byte;
+	long long num_bytes;
 };
 
 void
@@ -81,15 +82,15 @@ preallocateFile(int fileHandle, long long startOffset, long long bytesToAllocate
 }
 
 
-void *
+static void *
 process_request(void *arg)
 {
-	long long bytesWritten;
-    struct thread_data *zeroFillProcess;
+	unsigned long long end_byte, bytes_written;
+    struct thread_info *tinfo = (struct thread_info *) arg;
 
-	zeroFillProcess = (struct thread_data *) arg;
+	end_byte = tinfo->start_byte + tinfo->num_bytes;
 
-	fprintf(stdout, "Processing thread %d\n", zeroFillProcess->requestId);
+	fprintf(stdout, "tn: %d\tStart: %d\tEnd: %d\n", tinfo->thread_num, tinfo->start_byte, end_byte);
 	
 	// start timer
 
@@ -100,6 +101,8 @@ process_request(void *arg)
 	// print stats
 	//fprintf(stdout, "Thread %d wrote %d bytes in %d seconds (%d MB/sec)", zerofFillRequestProcess, , , );
 
+	return (NULL);
+
 }
 
 
@@ -107,6 +110,10 @@ process_request(void *arg)
 extern int 
 main(int argc, char *argv[])
 {
+	int s;
+	void *res;
+
+
 	/************** PROCESS ARGS START ***************/
 	int argCount = 0;
 	if (DEBUG) 
@@ -190,37 +197,55 @@ main(int argc, char *argv[])
 	
 	// DEFINE A NUMBER OF THREADS
     int rc = 0;
-	int tCount = 10;
+	int tnum = 10;
 	int wCount = 0;
-	int MAX_THREADS = 10;
+	int num_threads = 10;
 
-	thread_data *zeroFillData;
-	pthread_t zeroFillThreads[MAX_THREADS];
+	thread_info *tinfo;
+	pthread_t attr;
 
-	for (tCount=0; tCount <= MAX_THREADS; tCount++) 
+    /* Allocate memory for the pthreads */
+	tinfo = (thread_info *)malloc(sizeof(struct thread_info));
+	if (tinfo == NULL) 
 	{
-		// create a new struct to pass to the thread
-		zeroFillData = (thread_data *)malloc(sizeof(thread_data));
-		// set the contents of the struct
-		zeroFillData->requestId = tCount;
-		fprintf(stdout, "tc=%d\n", tCount);
-		
-		// spawn the fill thread
-		rc = pthread_create(&zeroFillThreads[tCount], NULL, process_request, (void *) &zeroFillData[tCount]);
+		printf("tinfo err\n");
+		exit(EXIT_FAILURE);
+	}
+
+	fprintf(stdout, "total bytes: %llu\n", bytesToAllocate);
+	unsigned long long next_byte = 1;
+
+	/* Create one thread for each block of the file */
+	for (tnum=1; tnum <= num_threads; tnum++) 
+	{
+		/* Fill in the thread_info struct to pass to the thread */
+		tinfo[tnum].thread_num = tnum;
+		tinfo[tnum].start_byte = next_byte;
+		tinfo[tnum].num_bytes = (bytesToAllocate / num_threads) - 1;
+
+		next_byte = tinfo[tnum].start_byte + tinfo[tnum].num_bytes + 1;
+
+		/* Create the thread */
+		rc = pthread_create(&tinfo[tnum].thread_id, NULL, &process_request, &tinfo[tnum]);
 		if (rc) {
 			exit(EXIT_FAILURE);
 		}
 	}
 
-	// Wait for threads to exit */
-	/*for (wCount = 0; wCount <= MAX_THREADS; wCount ++) 
-	{
-		pthread_join(zeroFill_threadprocess[wCount], NULL);
-	}
+	/* Now join with each thread, and display its returned value */
 
-	printf("Threads completed\n"); */
-	pthread_exit(NULL);
+/*	for (tnum = 0; tnum < num_threads; tnum++)
+	{
+		s = pthread_join(tinfo[tnum].thread_id, &res);
+        if (s != 0)
+		{
+			printf("pthread_join err\n");
+		}
+        
+		printf("Joined with thread %d; returned value was %s\n", tinfo[tnum].thread_num, (char *) res); */
+        //free(res);      /* Free memory allocated by thread */
+//    }
 
     /* Exit nicely */
-	return (EXIT_SUCCESS);
+	exit(EXIT_SUCCESS);
 }
