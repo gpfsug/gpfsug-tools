@@ -21,18 +21,40 @@
 #include <stdlib.h>
 #include <pthread.h>
 
+#include "gpfsdefs.h"
+
 #define DEBUG 1
 #define TRUE 1
 #define FALSE 0
 
 int opt, optind;
-int fileHandle;
+int gpfs_fcntl(int fileDesc, void* fcntlArgP);
 unsigned long long bytesToAllocate;				// size of the file in bytes
 unsigned long long startOffset;
 unsigned int numStreams;
 unsigned long long chunkSize;
 //char fileName[UCHAR_MAX];
 char *fileName;
+
+/* Ref: http://publib.boulder.ibm.com/infocenter/clresctr/vxrx/topic/com.ibm.cluster.gpfs.v3r4.gpfs300.doc/bl1adm_accrnge.html */
+
+
+typedef struct
+{
+  int          structLen;
+  int          structType;
+  offset_t     start;
+  offset_t     length;
+  int          isWrite;
+  char         padding[4];
+} gpfsAccessRange_t; 
+
+struct
+{
+  gpfsFcntlHeader_t hdr;
+  gpfsClearFileCache_t rel;
+  gpfsAccessRange_t acc;
+} gpfs_access_t;
 
 struct thread_info
 {
@@ -88,6 +110,43 @@ process_request(void *arg)
 	unsigned long long end_byte, bytes_written;
     struct thread_info *tinfo = (struct thread_info *) arg;
 
+
+	/* Open a fileHandle to the file for this thread */
+
+
+
+
+
+
+
+	/* Declare a new range for the chunk and make GPFS aware of this */
+	//gpfsAccessRange_t *rinfo = (gpfsAccessRange_t *)malloc(sizeof(gpfsAccessRange_t));
+
+	/* Fill the range information */
+	//rinfo->length = tinfo->num_bytes;
+	//rinfo->isWrite = 1; /* Write access */
+
+	gpfs_access_t *fileAccess = (gpfs_access_t *)malloc(sizeof(gpfs_access_t));
+
+	fileAccess.header.totalLength = sizeof(gpfsFileArg);
+	fileAccess.header.fcntlVersion = GPFS_FCNTL_CURRENT_VERSION;
+	fileAccess.header.fcntlReserved = 0;
+	fileAccess.release.structLen = sizeof(gpfsFileArg.release);
+	fileAccess.release.structType = GPFS_CLEAR_FILE_CACHE;
+	fileAccess.access.structLen = sizeof(gpfsFileArg.access);
+	fileAccess.access.structType = GPFS_ACCESS_RANGE;
+	fileAccess.access.start = 2LL * 1024LL * 1024LL * 1024LL;
+	fileAccess.access.length = 1024 * 1024 * 1024;
+	fileAccess.access.isWrite = 1;
+
+	/* Apply the range information */
+	if (gpfs_fcntl(fileHandle, &gpfsFileArg) != 0) 
+	{
+		fprintf(stderr, "gpfs_fcntl free range failed for range %d:%d. errno=%d errorOffset=%d\n", start, length, errno, free_range.hdr.errorOffset);
+		exit(EXIT_FAILURE);
+    }
+		
+
 	end_byte = tinfo->start_byte + tinfo->num_bytes;
 
 	fprintf(stdout, "tn: %d\tStart: %d\tEnd: %d\n", tinfo->thread_num, tinfo->start_byte, end_byte);
@@ -100,6 +159,9 @@ process_request(void *arg)
 
 	// print stats
 	//fprintf(stdout, "Thread %d wrote %d bytes in %d seconds (%d MB/sec)", zerofFillRequestProcess, , , );
+
+	/* Free the GPFS access range */
+	
 
 	return (NULL);
 
@@ -176,20 +238,23 @@ main(int argc, char *argv[])
 
     /*************** PROCESS ARGS END **************/
     /* Open the file handle */
-    fileHandle = open(fileName, O_RDWR|O_CREAT, 0644);
-    if (fileHandle < 0)
+	int preFh = 0;
+    preFh = open(fileName, O_RDWR|O_CREAT, 0644);
+    if (preFh < 0)
     {
         perror(fileName);;
         exit(EXIT_FAILURE);
-    }  
-
+    }
 
 	/************ PREALLOCATE FILE START ***********/
-	if (! preallocateFile(fileHandle, 0, bytesToAllocate)) {
+	if (! preallocateFile(preFh, 0, bytesToAllocate)) {
 
 		fprintf(stderr, "Could not preallocate file %s. Exiting.\n", fileName);
 		exit (EXIT_FAILURE);
 	}
+
+	/* Close the file handle, each fill thread has its own */
+	close(preFh);
 
 	/********** PREALLOCATE FILE END *********/
 
@@ -205,7 +270,7 @@ main(int argc, char *argv[])
 	pthread_t attr;
 
     /* Allocate memory for the pthreads */
-	tinfo = (thread_info *)malloc(sizeof(struct thread_info));
+	tinfo = (thread_info *)malloc(sizeof(struct thread_info)); // bug here. Should be using calloc().  Results in segv dump
 	if (tinfo == NULL) 
 	{
 		printf("tinfo err\n");
