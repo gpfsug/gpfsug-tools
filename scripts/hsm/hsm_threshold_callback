@@ -13,7 +13,7 @@ NUM_FILES_PER_MIG=5000
 POLROOT=/mnt/gpfs/resources/policies/by_stgpool
 POLOPT="-m $NUM_MIGRATORS -B $NUM_FILES_PER_MIG -g /mnt/gpfs/policytmp -s /mnt/gpfs/policytmp -B $NUM_FILES_PER_MIG -N tsm01"
 LOGDIR=/var/log/gpfs/policies
-LOCKDIR= /mnt/gpfs/policytmp
+LOCKDIR=/mnt/gpfs/policytmp
 EMAILDEST='foo@bar.com'
 
 EVENTTYPE=$1
