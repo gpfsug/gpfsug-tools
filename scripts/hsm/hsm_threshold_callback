@@ -1,18 +1,28 @@
 #!/bin/bash
 
+# Author: Jez Tucker
+# Email:  jez.tucker@gpfsug.org
+#
+VERSION="0.1"
+
+# Settings which affect TSM performance
+NUM_MIGRATORS=1
+NUM_FILES_PER_MIG=5000
+
+# GPFS Policy settings
 POLROOT=/mnt/gpfs/resources/policies/by_stgpool
-POLOPT="-s /mnt/gpfs/policytmp -g /mnt/gpfs/policytmp -N tsm01"
+POLOPT="-m $NUM_MIGRATORS -B $NUM_FILES_PER_MIG -g /mnt/gpfs/policytmp -s /mnt/gpfs/policytmp -B $NUM_FILES_PER_MIG -N tsm01"
 LOGDIR=/var/log/gpfs/policies
+LOCKDIR= /mnt/gpfs/policytmp
 EMAILDEST='foo@bar.com'
 
 EVENTTYPE=$1
 FSNAME=$2
 STGPOOL=$3
 
+# Log that we have received the alert
 echo "    Callback event: $EVENTTYPE, fs:$FSNAME stgpool:$STGPOOL"
 
-
-exit 0; 
 # Check for valid events that this script can handle
 if [ $EVENTTYPE != 'lowDiskSpace' ] && [ $EVENTTYPE != 'noDiskSpace' ]; then
   echo "Event type: $EVENTTYPE not handled. Exiting."
@@ -40,18 +50,58 @@ if [ -r "$POLROOT/$STGPOOL/${STGPOOL}_hsm.pol" ]; then
   fi
   POLOPT="$POLOPT $RUNMODE"
 
-  INSTANCES=$(ps -ef | grep  "/usr/lpp/mmfs/bin/mmapplypolicy $FSNAME -P $POLROOT/$STGPOOL/${STGPOOL}_hsm.pol" | grep -v grep | wc -l)
+  # Check for a lockdir for this policy
+  if [ -d "$LOCKDIR/${STGPOOL}_hsm.lock" ]; then
 
-  if [ $INSTANCES -gt 0 ]; then
-    echo "      FS policy already running.  Not starting this instance."
-  else 
+  #INSTANCES=$(ps -ef | grep  "/usr/lpp/mmfs/bin/mmapplypolicy $FSNAME -P $POLROOT/$STGPOOL/${STGPOOL}_hsm.pol" | grep -v grep | wc -l)
+
+  #if [ $INSTANCES -gt 0 ]; then
+
+	echo "      FS policy already running.  Not starting this instance.";
+	
+	# print some useful stats
+	if [ -r "$LOCKDIR/${STGPOOL}_hsm.lock/info" ]; then
+	
+		INFOPID = $(cat $LOCKDIR/${STGPOOL}_hsm.lock/info | awk '{ print $1; }')
+		INFOSTART = $(cat $LOCKDIR/${STGPOOL}_hsm.lock/info | awk '{ print $2; }')
+		INFONOW = $(date +%s)
+		INFOELAPSED = $(expr $INFONOW - $INFOSTART | date +"%Hh:%mm:%Ss")
+
+		echo "          Process ID: $INFOPID    Running time: $INFOELAPSED\n";
+
+	fi
+
+  else # no policy running, (we think)
     echo "      Processing HSM policy $POLROOT/$STGPOOL/${STGPOOL}_hsm.pol on file system $FSNAME mode: $RUNMODE"
+
+	# Create the directory lock  (directories are atomic, lock files are not)
+	mkdir $LOCKDIR/${STGPOOL}_hsm.lock
+
+	# If we couldn't create the directory email an alert and exit
+	if [ ! -d "$LOCKDIR/${STGPOOL}_hsm.lock" ]; then
+		
+		# Generate warning email
+		echo "Could not create lockdir $LOCKDIR/${STGPOOL}_hsm.lock.  Failed to start HSM policy." | /bin/mail -s "GPFS Critical Error: Could not create lockdir $LOCKDIR/${STGPOOL}_hsm.lock" $EMAILDEST
+
+		exit 1;
+	fi
 
     # Run the policy
     GPFSCMD="/usr/lpp/mmfs/bin/mmapplypolicy $FSNAME -P $POLROOT/$STGPOOL/${STGPOOL}_hsm.pol $POLOPT > $LOGDIR/${STGPOOL}_hsm.pol.log.$(date +'%Y.%m.%d.%H.%M.%S').$(hostname -s) 2>&1" 
 
     eval $GPFSCMD
+
+	# Grab the return value from eval - did the process start OK?
     RET=$?
+	POLID=$!  # Process id of mmapplypolicy
+	
+	# If mmapplypolicy started ok, store the policy process ID in a file in the lockdir, along with the unix time the policy was started
+	if [ $RET ]; then 
+		echo "$POLPID,$(date +%s)" > $LOCKDIR/${STGPOOL}_hsm.lock/info
+	else
+		# Remove the lockdir, if it exists
+		rm -rf $LOCKDIR/${STGPOOL}_hsm.lock
+	fi
   fi
 
 else
