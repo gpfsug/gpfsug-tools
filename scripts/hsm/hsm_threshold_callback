@@ -58,16 +58,16 @@ if [ -r "$POLROOT/$STGPOOL/${STGPOOL}_hsm.pol" ]; then
   #if [ $INSTANCES -gt 0 ]; then
 
 	echo "      FS policy already running.  Not starting this instance.";
-	
+
 	# print some useful stats
 	if [ -r "$LOCKDIR/${STGPOOL}_hsm.lock/info" ]; then
 	
-		INFOPID=$(cat $LOCKDIR/${STGPOOL}_hsm.lock/info | awk -F ',' '{ print $1; }')
-		INFOSTART=$(cat $LOCKDIR/${STGPOOL}_hsm.lock/info | awk -F ',' '{ print $2; }')
+		INFOPID=$(cat $LOCKDIR/${STGPOOL}_hsm.lock/pid)
+		INFOSTART=$(cat $LOCKDIR/${STGPOOL}_hsm.lock/started)
 		INFONOW=$(date +%s)
 		INFOELAPSED=$(expr $INFONOW - $INFOSTART | date +"%Hh:%mm:%Ss")
 
-		echo "          Process ID: $INFOPID    Running time: $INFOELAPSED\n";
+		echo "          Process ID: $INFOPID    Running time: $INFOELAPSED";
 
 	fi
 
@@ -93,11 +93,12 @@ if [ -r "$POLROOT/$STGPOOL/${STGPOOL}_hsm.pol" ]; then
 
 	# Grab the return value from eval - did the process start OK?
     RET=$?
-	POLID=$!  # Process id of mmapplypolicy
+	POLPID=$!  # Process id of mmapplypolicy
 	
 	# If mmapplypolicy started ok, store the policy process ID in a file in the lockdir, along with the unix time the policy was started
 	if [ $RET ]; then 
-		echo "$POLPID,$(date +%s)" > $LOCKDIR/${STGPOOL}_hsm.lock/info
+		echo "$POLPID" > $LOCKDIR/${STGPOOL}_hsm.lock/pid
+		echo "$(date +%s)" > $LOCKDIR/${STGPOOL}_hsm.lock/started
 	else
 		# Remove the lockdir, if it exists
 		rm -rf $LOCKDIR/${STGPOOL}_hsm.lock
