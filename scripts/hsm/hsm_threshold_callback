@@ -62,10 +62,10 @@ if [ -r "$POLROOT/$STGPOOL/${STGPOOL}_hsm.pol" ]; then
 	# print some useful stats
 	if [ -r "$LOCKDIR/${STGPOOL}_hsm.lock/info" ]; then
 	
-		INFOPID = $(cat $LOCKDIR/${STGPOOL}_hsm.lock/info | awk '{ print $1; }')
-		INFOSTART = $(cat $LOCKDIR/${STGPOOL}_hsm.lock/info | awk '{ print $2; }')
-		INFONOW = $(date +%s)
-		INFOELAPSED = $(expr $INFONOW - $INFOSTART | date +"%Hh:%mm:%Ss")
+		INFOPID=$(cat $LOCKDIR/${STGPOOL}_hsm.lock/info | awk '{ print $1; }')
+		INFOSTART=$(cat $LOCKDIR/${STGPOOL}_hsm.lock/info | awk '{ print $2; }')
+		INFONOW=$(date +%s)
+		INFOELAPSED=$(expr $INFONOW - $INFOSTART | date +"%Hh:%mm:%Ss")
 
 		echo "          Process ID: $INFOPID    Running time: $INFOELAPSED\n";
 
