@@ -116,6 +116,15 @@ else
   RET=1
 fi
 
+# Remove the lockdir, if it exists
+rm -rf $LOCKDIR/${STGPOOL}_hsm.lock
+
+# Check that the lockdir was removed
+# If we couldn't create the directory email an alert and exit
+if [ -d "$LOCKDIR/${STGPOOL}_hsm.lock" ]; then
+  echo "Could not remove lockdir $LOCKDIR/${STGPOOL}_hsm.lock.  Future HSM policies will not start." | /bin/mail -s "GPFS Critical Error: Could not create lockdir $LOCKDIR/${STGPOOL}_hsm.lock" $EMAILDEST
+fi 
+
 exit $RET
 
 # EOF
