@@ -89,7 +89,7 @@ if [ -r "$POLROOT/$STGPOOL/${STGPOOL}_hsm.pol" ]; then
     # Run the policy
     GPFSCMD="/usr/lpp/mmfs/bin/mmapplypolicy $FSNAME -P $POLROOT/$STGPOOL/${STGPOOL}_hsm.pol $POLOPT > $LOGDIR/${STGPOOL}_hsm.pol.log.$(date +'%Y.%m.%d.%H.%M.%S').$(hostname -s) 2>&1" 
 
-    eval "($GPFSCMD)"
+    eval $GPFSCMD
 
 	# Grab the return value from eval - did the process start OK?
     RET=$?
