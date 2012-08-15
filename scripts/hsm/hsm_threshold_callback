@@ -27,7 +27,7 @@ POLROOT=/mnt/gpfs/resources/policies/by_stgpool
 POLOPT="-a 4 -m $NUM_MIGRATORS -B $NUM_FILES_PER_MIG -g /mnt/gpfs/policytmp -s /mnt/gpfs/policytmp -N $HSMNODES"
 LOGDIR=/var/log/gpfs/policies
 LOCKDIR=/mnt/gpfs/policytmp
-EMAILDEST='engineering@rushes.co.uk'
+EMAILDEST='foo@bar.com'
 
 EVENTTYPE=$1
 FSNAME=$2
