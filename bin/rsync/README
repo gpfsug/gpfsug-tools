@@ -1,0 +1,110 @@
+rsync-3.0.9-patched/
+  - patched version of the 3.0.9 release of rsync, which can be obtained from: 
+     http://rsync.samba.org/ftp/rsync/src/rsync-3.0.9.tar.gz
+  - the patch is: 
+     gpfs_support_rsync-3.0.9.patch 
+    which adds rudimentary ACL copying support to rsync - the code for which comes from here:
+     http://lists.samba.org/archive/rsync/2008-October/021963.html
+  - Prerequisite is, at least, libacl development headers - in Ubuntu 12.04, this can be obtained with (for example):
+     sudo apt-get install libacl1-dev 
+  - Once you've applied the patch with, say: 
+     patch patch -p1 -i ../gpfs_support_rsync-3.0.9.patch
+    configure rsync with:
+     ./configure --enable-acl-support --enable-xattr-support --enable-gpfs-support --prefix=/opt/rsync.gpfs
+    then do:
+     make
+    and, optionally,:
+     make install
+  - to use the gpfs extensions, add the rsync command option:
+    --gpfs-attrs
+  - there's also --gpfs-cache-attr
+
+
+ - So, step by step (this is from an Ubuntu 12.04 box), to build this do:
+# sudo apt-get install libacl1-dev
+# mkdir -p src/rsync
+# cd src/rsync
+# wget http://rsync.samba.org/ftp/rsync/src/rsync-3.0.9.tar.gz
+### Get the gpfs_support_rsync-3.0.9.patch file and put it in this folder (src/rsync)
+# tar -zxf rsync-3.0.9.tar.gz
+# cd rsync-3.0.9
+# patch -p1 -i ../gpfs_support_rsync-3.0.9.patch
+# ./configure --enable-acl-support --enable-xattr-support --enable-gpfs-support --prefix=/opt/rsync.gpfs
+# make 
+# make install
+
+
+ - To check that the binary has gpfs support, check that the "gpfs" capability is present in:
+# /opt/rsync.gpfs/bin/rsync --version
+rsync  version 3.0.9  protocol version 30
+Copyright (C) 1996-2011 by Andrew Tridgell, Wayne Davison, and others.
+Web site: http://rsync.samba.org/
+Capabilities:
+    64-bit files, 64-bit inums, 64-bit timestamps, 64-bit long ints,
+    socketpairs, hardlinks, symlinks, IPv6, batchfiles, inplace,
+    append, ACLs, xattrs, gpfs, iconv, symtimes
+
+rsync comes with ABSOLUTELY NO WARRANTY.  This is free software, and you
+are welcome to redistribute it under certain conditions.  See the GNU
+General Public Licence for details.
+
+
+ - To test if it has worked, first copy a file/folder which has ALCs present using the "stock" rsync:
+# mmgetacl /gpfs1/testfolder1/
+#NFSv4 ACL
+#owner:root
+#group:root
+user:12345:rwxc:allow:FileInherit:DirInherit
+ (X)READ/LIST (X)WRITE/CREATE (X)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (X)READ_NAMED
+ (X)DELETE    (X)DELETE_CHILD (X)CHOWN (X)EXEC/SEARCH (X)WRITE_ACL (X)WRITE_ATTR (X)WRITE_NAMED
+
+group:123456:rwxc:allow:FileInherit:DirInherit
+ (X)READ/LIST (X)WRITE/CREATE (X)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (X)READ_NAMED
+ (X)DELETE    (X)DELETE_CHILD (X)CHOWN (X)EXEC/SEARCH (X)WRITE_ACL (X)WRITE_ATTR (X)WRITE_NAMED
+
+group:223456:rwxc:allow:FileInherit:DirInherit
+ (X)READ/LIST (X)WRITE/CREATE (X)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (X)READ_NAMED
+ (X)DELETE    (X)DELETE_CHILD (X)CHOWN (X)EXEC/SEARCH (X)WRITE_ACL (X)WRITE_ATTR (X)WRITE_NAMED
+
+# rsync -av /gpfs1/testfolder1/ /gpfs/testfolder1-copy/
+
+# mmgetacl /gpfs/testfolder1-copy/
+#NFSv4 ACL
+#owner:root
+#group:root
+special:owner@:---c:allow
+ (-)READ/LIST (-)WRITE/CREATE (-)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (-)READ_NAMED
+ (-)DELETE    (-)DELETE_CHILD (X)CHOWN (-)EXEC/SEARCH (X)WRITE_ACL (X)WRITE_ATTR (-)WRITE_NAMED
+
+special:group@:----:allow
+ (-)READ/LIST (-)WRITE/CREATE (-)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (-)READ_NAMED
+ (-)DELETE    (-)DELETE_CHILD (-)CHOWN (-)EXEC/SEARCH (-)WRITE_ACL (-)WRITE_ATTR (-)WRITE_NAMED
+
+special:everyone@:----:allow
+ (-)READ/LIST (-)WRITE/CREATE (-)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (-)READ_NAMED
+ (-)DELETE    (-)DELETE_CHILD (-)CHOWN (-)EXEC/SEARCH (-)WRITE_ACL (-)WRITE_ATTR (-)WRITE_NAMED
+
+
+### (note that this newly created folder may inherit permissions from it's parent, if it has any set)
+
+# /opt/rsync.gpfs/bin/rsync -av --gpfs-attrs /gpfs1/testfolder1/ /gpfs/testfolder1-copy-withpatchedrsync
+# mmgetacl /gpfs/testfolder1-copy-withpatchedrsync
+#NFSv4 ACL
+#owner:root
+#group:root
+user:12345:rwxc:allow:FileInherit:DirInherit
+ (X)READ/LIST (X)WRITE/CREATE (X)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (X)READ_NAMED
+ (X)DELETE    (X)DELETE_CHILD (X)CHOWN (X)EXEC/SEARCH (X)WRITE_ACL (X)WRITE_ATTR (X)WRITE_NAMED
+
+group:123456:rwxc:allow:FileInherit:DirInherit
+ (X)READ/LIST (X)WRITE/CREATE (X)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (X)READ_NAMED
+ (X)DELETE    (X)DELETE_CHILD (X)CHOWN (X)EXEC/SEARCH (X)WRITE_ACL (X)WRITE_ATTR (X)WRITE_NAMED
+
+group:223456:rwxc:allow:FileInherit:DirInherit
+ (X)READ/LIST (X)WRITE/CREATE (X)MKDIR (X)SYNCHRONIZE (X)READ_ACL  (X)READ_ATTR  (X)READ_NAMED
+ (X)DELETE    (X)DELETE_CHILD (X)CHOWN (X)EXEC/SEARCH (X)WRITE_ACL (X)WRITE_ATTR (X)WRITE_NAMED
+
+
+
+
+

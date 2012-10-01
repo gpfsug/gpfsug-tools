@@ -1,0 +1,1234 @@
+diff -rupN rsync-3.0.9/backup.c rsync-3.0.9-patched/backup.c
+--- rsync-3.0.9/backup.c	2010-07-03 17:19:01.000000000 +0100
++++ rsync-3.0.9-patched/backup.c	2012-10-01 09:41:39.646173856 +0100
+@@ -24,6 +24,7 @@ extern int verbose;
+ extern int am_root;
+ extern int preserve_acls;
+ extern int preserve_xattrs;
++extern int preserve_gpfs_attrs;
+ extern int preserve_devices;
+ extern int preserve_specials;
+ extern int preserve_links;
+@@ -143,6 +144,9 @@ int make_bak_dir(const char *fullpath)
+ #ifdef SUPPORT_XATTRS
+ 				sx.xattr = NULL;
+ #endif
++#ifdef SUPPORT_GPFS
++				sx.gpfs_attr = NULL;
++#endif
+ 				if (!(file = make_file(rel, NULL, NULL, 0, NO_FILTERS)))
+ 					continue;
+ #ifdef SUPPORT_ACLS
+@@ -159,6 +163,14 @@ int make_bak_dir(const char *fullpath)
+ 					free_xattr(&sx);
+ 				}
+ #endif
++#ifdef SUPPORT_GPFS
++				if (preserve_gpfs_attrs) {
++					gpfs_get_attr(rel, &sx);
++					gpfs_cache_attr(file, &sx);
++					gpfs_free_sxp(&sx);
++				}
++#endif
++
+ 				set_file_attrs(fbuf, file, NULL, NULL, 0);
+ 				unmake_file(file);
+ #ifdef SUPPORT_ACLS
+@@ -223,7 +235,9 @@ static int keep_backup(const char *fname
+ #ifdef SUPPORT_XATTRS
+ 	sx.xattr = NULL;
+ #endif
+-
++#ifdef SUPPORT_GPFS
++	sx.gpfs_attr = NULL;
++#endif
+ 	if (!(file = make_file(fname, NULL, NULL, 0, NO_FILTERS)))
+ 		return 1; /* the file could have disappeared */
+ 
+@@ -252,7 +266,13 @@ static int keep_backup(const char *fname
+ 		free_xattr(&sx);
+ 	}
+ #endif
+-
++#ifdef SUPPORT_GPFS
++	if (preserve_gpfs_attrs) {
++		gpfs_get_attr(fname, &sx);
++		gpfs_cache_attr(file, &sx);
++		gpfs_free_sxp(&sx);
++	}
++#endif
+ 	/* Check to see if this is a device file, or link */
+ 	if ((am_root && preserve_devices && IS_DEVICE(file->mode))
+ 	 || (preserve_specials && IS_SPECIAL(file->mode))) {
+diff -rupN rsync-3.0.9/batch.c rsync-3.0.9-patched/batch.c
+--- rsync-3.0.9/batch.c	2009-01-17 21:41:35.000000000 +0000
++++ rsync-3.0.9-patched/batch.c	2012-10-01 09:41:39.650173871 +0100
+@@ -33,6 +33,7 @@ extern int preserve_uid;
+ extern int preserve_gid;
+ extern int preserve_acls;
+ extern int preserve_xattrs;
++extern int preserve_gpfs_attrs;
+ extern int always_checksum;
+ extern int do_compression;
+ extern int inplace;
+@@ -67,6 +68,7 @@ static int *flag_ptr[] = {
+ 	&inplace,		/* 12 (protocol 30) */
+ 	&tweaked_append,	/* 13 (protocol 30) */
+ 	&tweaked_append_verify,	/* 14 (protocol 30) */
++	&preserve_gpfs_attrs,	/* 15 (protocol 30, subprotocol 9991-) */
+ 	NULL
+ };
+ 
+diff -rupN rsync-3.0.9/cleanup.c rsync-3.0.9-patched/cleanup.c
+--- rsync-3.0.9/cleanup.c	2011-02-21 18:20:58.000000000 +0000
++++ rsync-3.0.9-patched/cleanup.c	2012-10-01 09:41:39.650173871 +0100
+@@ -161,6 +161,13 @@ NORETURN void _exit_cleanup(int code, co
+ 					cleanup_file, 0, !partial_dir);
+ 		}
+ 
++#ifdef SUPPORT_GPFS
++		/* FALLTHROUGH */
++#include "case_N.h"
++		gpfs_free_list();
++
++#endif
++
+ 		/* FALLTHROUGH */
+ #include "case_N.h"
+ 		switch_step++;
+diff -rupN rsync-3.0.9/compat.c rsync-3.0.9-patched/compat.c
+--- rsync-3.0.9/compat.c	2011-02-21 19:32:48.000000000 +0000
++++ rsync-3.0.9-patched/compat.c	2012-10-01 09:41:39.650173871 +0100
+@@ -48,6 +48,7 @@ extern int preserve_uid;
+ extern int preserve_gid;
+ extern int preserve_acls;
+ extern int preserve_xattrs;
++extern int preserve_gpfs_attrs;
+ extern int need_messages_from_generator;
+ extern int delete_mode, delete_before, delete_during, delete_after;
+ extern char *shell_cmd;
+@@ -64,6 +65,7 @@ extern char *iconv_opt;
+ 
+ /* These index values are for the file-list's extra-attribute array. */
+ int uid_ndx, gid_ndx, acls_ndx, xattrs_ndx, unsort_ndx;
++int gpfs_attrs_ndx;
+ 
+ int receiver_symlink_times = 0; /* receiver can set the time on a symlink */
+ int sender_symlink_iconv = 0;	/* sender should convert symlink content */
+@@ -144,6 +146,8 @@ void setup_protocol(int f_out,int f_in)
+ 		acls_ndx = ++file_extra_cnt;
+ 	if (preserve_xattrs)
+ 		xattrs_ndx = ++file_extra_cnt;
++	if (preserve_gpfs_attrs)
++		gpfs_attrs_ndx = ++file_extra_cnt;
+ 
+ 	if (am_server)
+ 		set_allow_inc_recurse();
+diff -rupN rsync-3.0.9/configure.sh rsync-3.0.9-patched/configure.sh
+--- rsync-3.0.9/configure.sh	2011-09-23 17:41:30.000000000 +0100
++++ rsync-3.0.9-patched/configure.sh	2012-10-01 10:11:15.857085754 +0100
+@@ -688,6 +688,7 @@ enable_iconv_open
+ enable_iconv
+ enable_acl_support
+ enable_xattr_support
++enable_gpfs_support
+ '
+       ac_precious_vars='build_alias
+ host_alias
+@@ -8382,6 +8383,27 @@ $as_echo "No ACL support found" >&6; }
+ fi
+ 
+ #################################################
++# check for GPFS support
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether to support gpfs attributes" >&5
++$as_echo_n "checking whether to support gpfs attributes... " >&6; }
++# Check whether --enable-gpfs-support was given.
++if test "${enable_gpfs_support+set}" = set; then :
++  enableval=$enable_gpfs_support;
++fi
++if test x"$enable_gpfs_support" = x"no"; then
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++else
++    { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
++$as_echo "yes" >&6; }
++
++    OLD_CFLAGS="$CFLAGS"
++    CFLAGS="$CFLAGS -DSUPPORT_GPFS"
++fi
++# End of GPFS support check
++#################################################
++
++#################################################
+ # check for extended attribute support
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether to support extended attributes" >&5
+ $as_echo_n "checking whether to support extended attributes... " >&6; }
+diff -rupN rsync-3.0.9/flist.c rsync-3.0.9-patched/flist.c
+--- rsync-3.0.9/flist.c	2011-08-27 22:58:04.000000000 +0100
++++ rsync-3.0.9-patched/flist.c	2012-10-01 09:41:39.650173871 +0100
+@@ -47,6 +47,7 @@ extern int preserve_uid;
+ extern int preserve_gid;
+ extern int preserve_acls;
+ extern int preserve_xattrs;
++extern int preserve_gpfs_attrs;
+ extern int preserve_links;
+ extern int preserve_hard_links;
+ extern int preserve_devices;
+@@ -1056,7 +1057,10 @@ static struct file_struct *recv_file_ent
+ 	if (preserve_xattrs)
+ 		receive_xattr(f, file);
+ #endif
+-
++#ifdef SUPPORT_GPFS
++	if (preserve_gpfs_attrs)
++		gpfs_receive_attr(file, f);
++#endif
+ 	if (S_ISREG(mode) || S_ISLNK(mode))
+ 		stats.total_size += file_length;
+ 
+@@ -1346,7 +1350,7 @@ static struct file_struct *send_file_nam
+ 		char symlink_buf[MAXPATHLEN];
+ #endif
+ #endif
+-#if defined SUPPORT_ACLS || defined SUPPORT_XATTRS
++#if defined SUPPORT_ACLS || defined SUPPORT_XATTRS || defined SUPPORT_GPFS
+ 		stat_x sx;
+ #endif
+ 
+@@ -1437,6 +1441,16 @@ static struct file_struct *send_file_nam
+ 		}
+ #endif
+ 
++#ifdef SUPPORT_GPFS
++		if (preserve_gpfs_attrs) {
++			sx.gpfs_attr = NULL;
++			if (gpfs_get_attr(fname, &sx) < 0) {
++				io_error |= IOERR_GENERAL;
++				return NULL;
++			}
++		}
++#endif
++
+ 		send_file_entry(f, fbuf, file,
+ #ifdef SUPPORT_LINKS
+ 				symlink_name, symlink_len,
+@@ -1455,6 +1469,12 @@ static struct file_struct *send_file_nam
+ 			free_xattr(&sx);
+ 		}
+ #endif
++#ifdef SUPPORT_GPFS
++		if (preserve_gpfs_attrs) {
++			gpfs_send_attr(&sx, f);
++			gpfs_free_sxp(&sx);
++		}
++#endif
+ 	}
+ 
+ 	maybe_emit_filelist_progress(flist->used + flist_count_offset);
+diff -rupN rsync-3.0.9/generator.c rsync-3.0.9-patched/generator.c
+--- rsync-3.0.9/generator.c	2011-09-10 21:38:11.000000000 +0100
++++ rsync-3.0.9-patched/generator.c	2012-10-01 09:48:49.939792423 +0100
+@@ -37,6 +37,7 @@ extern int implied_dirs;
+ extern int keep_dirlinks;
+ extern int preserve_acls;
+ extern int preserve_xattrs;
++extern int preserve_gpfs_attrs;
+ extern int preserve_links;
+ extern int preserve_devices;
+ extern int preserve_specials;
+@@ -657,6 +658,13 @@ int unchanged_attrs(const char *fname, s
+ 		if (xattrs_differ(fname, file, sxp))
+ 			return 0;
+ #endif
++#ifdef SUPPORT_GPFS
++	if (preserve_gpfs_attrs) {
++		if (gpfs_attr_get_changed(fname, file, sxp))
++			return 0;
++	}
++#endif
++
+ 	}
+ 
+ 	return 1;
+@@ -714,6 +722,13 @@ void itemize(const char *fnamecmp, struc
+ 				iflags |= ITEM_REPORT_XATTR;
+ 		}
+ #endif
++#ifdef SUPPORT_GPFS
++		if (preserve_gpfs_attrs) {
++			if (gpfs_attr_get_changed(fnamecmp, file, sxp))
++				iflags |= ITEM_REPORT_GPFS_ATTR;
++		}
++#endif
++
+ 	} else {
+ #ifdef SUPPORT_XATTRS
+ 		if (preserve_xattrs && xattr_diff(file, NULL, 1))
+@@ -1346,6 +1361,10 @@ static void recv_generator(char *fname,
+ #ifdef SUPPORT_XATTRS
+ 	sx.xattr = NULL;
+ #endif
++#ifdef SUPPORT_GPFS
++ 	sx.gpfs_attr = NULL;
++#endif
++
+ 	if (daemon_filter_list.head && (*fname != '.' || fname[1])) {
+ 		if (check_filter(&daemon_filter_list, FLOG, fname, is_dir) < 0) {
+ 			if (is_dir < 0)
+@@ -2003,6 +2022,10 @@ static void recv_generator(char *fname,
+ 		if (preserve_xattrs)
+ 			free_xattr(&real_sx);
+ #endif
++#ifdef SUPPORT_GPFS
++		if (preserve_gpfs_attrs)
++			gpfs_free_sxp(&real_sx);
++#endif
+ 	}
+ 
+ 	if (!do_xfers) {
+@@ -2058,6 +2081,11 @@ static void recv_generator(char *fname,
+ 	if (preserve_xattrs)
+ 		free_xattr(&sx);
+ #endif
++#ifdef SUPPORT_GPFS
++	if (preserve_gpfs_attrs)
++		gpfs_free_sxp(&sx);
++#endif
++
+ 	return;
+ }
+ 
+diff -rupN rsync-3.0.9/gpfs.c rsync-3.0.9-patched/gpfs.c
+--- rsync-3.0.9/gpfs.c	1970-01-01 01:00:00.000000000 +0100
++++ rsync-3.0.9-patched/gpfs.c	2012-10-01 09:51:30.836403433 +0100
+@@ -0,0 +1,578 @@
++/*
++ * GPFS support for rsync.
++ * Written by Peter Somogyi
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program; if not, visit the http://fsf.org website.
++ */ 
++
++
++#include "rsync.h"
++#include "ifuncs.h"
++
++#include "lib/bst.h"
++#include "zlib.h"
++
++#define GPFS_ATTR_SIZE_MAX 0x100000
++#define GPFS_ATTR_SIZE_INIT 0x2
++#define GPFS_NDX_NOATTR -1
++
++#define DEBUG_MIN_REPORT_LEVEL 3
++
++struct rsync_gpfs_attr {
++	int size;
++	void *buf;
++};
++
++struct rsync_gpfs_attr2 {
++	unsigned long crc32;
++	int next_similar; /* index of the next attr having the same crc32 */
++
++	unsigned char md5_digest[MD5_DIGEST_LEN];
++};
++
++/* Pointer list for GPFS attribute memory blocks */
++static item_list gpfs_attr_list = EMPTY_ITEM_LIST;
++static item_list gpfs_attr2_list = EMPTY_ITEM_LIST;
++static struct bst_tree *gpfs_bst = NULL;
++
++extern int gpfs_attrs_ndx; /* compat.c */
++extern int dry_run; /* options.c */
++extern int use_gpfs_attr_cache; /* options.c */
++
++/*
++ * which data should be transmitted in gpfs attributes:
++ * - don't save file placement
++ * - ignore pool
++ */
++static int gpfs_attr_flags = 3;
++
++/*
++ * GPFS ioctl specific values
++ */
++#define IOCTL_FATTR_ID (53)
++static char *gpfs_devname = "/dev/ss0";
++enum gpfs_func_id {gpfs_get_all_attrs = 27, gpfs_put_all_attrs = 28};
++
++/* hope that gaps are the same... */
++struct xattrs_params {
++	int flags;
++	void *buf;
++	int size;
++	int *size2;
++};
++
++static int gpfs_do_ioctl(int fd, enum gpfs_func_id func_id,
++	struct xattrs_params *params, int *reason)
++{
++	int	gpfs_fd = open(gpfs_devname, O_RDONLY);
++	long	args[5];
++	int	rc;
++
++	if (gpfs_fd == -1) {
++		rprintf(FERROR, "gpfs_fgetattrs: open failed (%d)\n", errno);
++		exit_cleanup(RERR_FILEIO);
++	}
++
++	args[0] = (long)fd;
++	args[1] = (long)func_id;
++	args[2] = (long)params;
++	args[3] = (long)reason;
++
++	rc = ioctl(gpfs_fd, IOCTL_FATTR_ID, &args);
++
++	/* don't touch errno from now ! */
++
++	close(gpfs_fd);
++
++	return rc;
++}
++
++static int gpfs_fgetattrs(int fd, int flags, void *buffer, int bufferSize, int *attrSize)
++{
++	struct xattrs_params	params;
++
++	params.flags = flags;
++	params.buf = buffer;
++	params.size = bufferSize;
++	params.size2 = attrSize;
++
++	return gpfs_do_ioctl(fd, gpfs_get_all_attrs, &params, NULL);
++}
++
++static int gpfs_fputattrs(int fd, int flags, void *buffer)
++{
++	struct xattrs_params	params;
++
++	params.flags = flags;
++	params.buf = buffer;
++
++	return gpfs_do_ioctl(fd, gpfs_put_all_attrs, &params, NULL);
++}
++
++
++static void gpfs_report_bst(void)
++{
++	rprintf(FINFO, "gpfs bst: depth=%d, nodes=%d, hit=%d\n",
++		gpfs_bst->depth, gpfs_bst->nodes, gpfs_bst->hit);
++}
++
++void gpfs_free_attr(struct rsync_gpfs_attr *a)
++{
++	if (!a)
++		return;
++	if (a->buf) {
++		free(a->buf);
++		a->buf = NULL;
++	}
++}
++
++void gpfs_free_sxp(stat_x *sxp)
++{
++	if (!sxp->gpfs_attr)
++		return;
++	gpfs_free_attr(sxp->gpfs_attr);
++	free(sxp->gpfs_attr);
++	sxp->gpfs_attr = NULL;
++}
++
++void gpfs_free_list(void)
++{
++	int	i = gpfs_attr_list.count;
++	int	rc;
++
++	struct rsync_gpfs_attr *a = gpfs_attr_list.items;
++
++	while(i) {
++		gpfs_free_attr(a++);
++		i--;
++	}
++
++	if (gpfs_bst) {
++
++		rc = bst_free(gpfs_bst);
++		if (rc) {
++			rprintf(FERROR, "bst_free rc=%d\n", rc);
++			exit_cleanup(RERR_CRASHED);
++		}
++	}
++}
++
++/* return: 0 when equal */
++static int gpfs_attr_cmp(const struct rsync_gpfs_attr *a1,
++	const struct rsync_gpfs_attr *a2)
++{
++	if (a1 == a2)
++		return 0;
++	if (!a1 || !a2)
++		return -1;
++	/* now a1 and a2 are nonzero */
++
++	if (a1->buf == a2->buf)
++		return 0;
++	if (!a1->buf || !a2->buf)
++		return -1;
++	/* now both buffers are nonzero */
++
++	if (a1->size != a2->size)
++		return -1;
++
++	return memcmp(a1->buf, a2->buf, a1->size);
++}
++
++static struct rsync_gpfs_attr *gpfs_get_attr_elem(int index)
++{
++	struct rsync_gpfs_attr *a = (struct rsync_gpfs_attr *)gpfs_attr_list.items;
++	return a + index;
++}
++
++static struct rsync_gpfs_attr2 *gpfs_get_attr2_elem(int index)
++{
++	struct rsync_gpfs_attr2 *a2 = (struct rsync_gpfs_attr2 *)gpfs_attr2_list.items;
++	return a2 + index;
++}
++
++static int gpfs_receive_attr_int(int f)
++{
++	int ndx = read_varint(f) - 1;
++	struct rsync_gpfs_attr	*a;
++
++
++	if (ndx == GPFS_NDX_NOATTR)
++		return ndx; /* having no GPFS attribute */
++
++	if (ndx < 0 || ndx > (int)gpfs_attr_list.count) {
++		rprintf(FERROR_XFER, "gpfs_receive_attr: GPFS attr "
++			"index %d is out of [-1,  %lu]\n", ndx, gpfs_attr_list.count);
++		exit_cleanup(RERR_STREAMIO);
++	}
++
++	if (ndx != 0) {
++		/* cached */
++		return ndx - 1;
++	}
++
++	a = EXPAND_ITEM_LIST(&gpfs_attr_list, struct rsync_gpfs_attr, 1000);
++	if (!a) {
++		rprintf(FERROR, "failed to allocate gpfs attribute "
++			"item (at count: %d)\n", (int)gpfs_attr_list.count);
++		exit_cleanup(RERR_MALLOC);
++	}
++
++	/* read  */
++	a->size = read_varint(f);
++
++
++	if (a->size > GPFS_ATTR_SIZE_MAX) {
++		rprintf(FERROR_XFER, "gpfs attribute is too big (%d), "
++			"possible protocol error\n", a->size);
++		exit_cleanup(RERR_STREAMIO);
++	}
++
++	a->buf = malloc(a->size);
++	if (!a->buf) {
++		rprintf(FERROR, "failed to allocate gpfs attribute buffer (%d)\n",
++			a->size);
++		exit_cleanup(RERR_MALLOC);
++	}
++	read_buf(f, a->buf, a->size);
++
++	return (gpfs_attr_list.count - 1);
++}
++
++void gpfs_receive_attr(struct file_struct *file, int f)
++{
++	F_GPFS_ATTR(file) = gpfs_receive_attr_int(f);
++}
++
++static void gpfs_calc_attr2(struct rsync_gpfs_attr *a, struct rsync_gpfs_attr2 *a2)
++{
++	get_md5(a2->md5_digest, (uchar *)a->buf, (int)a->size);
++	a2->crc32 = crc32(0, (unsigned char *)a->buf, a->size);
++	a2->next_similar = -1;
++}
++
++static void gpfs_add_attr(struct rsync_gpfs_attr *b, struct rsync_gpfs_attr2 *b2)
++{
++	struct rsync_gpfs_attr *a;
++	struct rsync_gpfs_attr2 *a2;
++
++	if (!b)
++		return;
++
++	a = EXPAND_ITEM_LIST(&gpfs_attr_list, struct rsync_gpfs_attr, 1000);
++	if (!a) {
++		rprintf(FERROR, "failed to allocate gpfs attribute "
++			"item (at count: %d)\n", (int)gpfs_attr_list.count);
++		exit_cleanup(RERR_MALLOC);
++	}
++
++	a->buf = malloc(b->size);
++	if (!a->buf) {
++		rprintf(FERROR, "failed to allocate gpfs attribute "
++			"size %u (at count: %d)\n", b->size,
++			(int)gpfs_attr_list.count);
++		exit_cleanup(RERR_MALLOC);
++	}
++
++	memcpy(a->buf, b->buf, b->size);
++	a->size = b->size;
++
++	/* calculate the second part */
++	a2 = EXPAND_ITEM_LIST(&gpfs_attr2_list, struct rsync_gpfs_attr2, 1000);
++	if (!a2) {
++		rprintf(FERROR, "failed to allocate gpfs attribute2 "
++			"item (at count: %d)\n", (int)gpfs_attr2_list.count);
++		exit_cleanup(RERR_MALLOC);
++	}
++
++	memcpy(a2, b2, sizeof(struct rsync_gpfs_attr2));
++}
++
++/* MUST BE INVOKED ON THE SENDER ONLY */
++static int gpfs_find_attr(struct rsync_gpfs_attr *a)
++{
++	int	rc;
++	int	similar;
++	struct rsync_gpfs_attr2	a2; /* calculated part */
++
++	/* do the calculation only once,
++	 * just at the beginning */
++	gpfs_calc_attr2(a, &a2);
++
++	/* create tree if it doesn't exist yet */
++	if (!gpfs_bst) {
++		gpfs_bst = bst_new_tree();
++		if (!gpfs_bst) {
++			rprintf(FERROR, "failed to allocate bst\n");
++			exit_cleanup(RERR_MALLOC);
++		}
++	}
++
++	/* search/insert into tree */
++	rc = bst_insert(gpfs_bst, a2.crc32, gpfs_attr2_list.count, &similar);
++	if (rc<0) {
++		rprintf(FERROR, "gpfs bst_search error %d", rc);
++		gpfs_report_bst();
++		exit_cleanup((rc==-1) ? RERR_MALLOC: RERR_CRASHED);
++	} else if (rc>0) { /* found attr having similar crc32 */
++		struct rsync_gpfs_attr2 *c2 = NULL;
++
++		/* try to find equal in the similar chain */
++		while(similar>=0) {
++			c2 = gpfs_get_attr2_elem(similar);
++
++			if (memcmp(c2->md5_digest, a2.md5_digest, MD5_DIGEST_LEN)==0) {
++				if (gpfs_attr_cmp(a, gpfs_get_attr_elem(similar))==0) {
++					/* found */
++
++#ifdef __TEST_RARE_CONDITION__
++				static int gpfs_wrong = 0;
++				gpfs_wrong = (gpfs_wrong + 1)%4;
++				if (gpfs_wrong++ > 2)
++#endif
++
++					return similar;
++				}
++			}
++
++			/* get the next one */
++			similar = c2->next_similar;
++		}
++
++
++		/* now c2 must be the last similar one in the chain */
++		if (!c2) {
++			rprintf(FERROR, "gpfs bst chain inconsistency\n");
++			gpfs_report_bst();
++			exit_cleanup(RERR_CRASHED);
++		}
++		c2->next_similar = gpfs_attr2_list.count; /* will be added in the next step */
++	} /* else couldn't find, and a2->next_similar is kept -1 */
++
++	gpfs_add_attr(a, &a2);
++	return -1;
++}
++
++void gpfs_cache_attr(struct file_struct *file, stat_x *sxp)
++{
++	int	match;
++	struct rsync_gpfs_attr	*a = sxp->gpfs_attr;
++
++	if (!use_gpfs_attr_cache || !a || !a->buf)
++		return;
++
++	match =  gpfs_find_attr(a);
++	if (match >= 0) {
++		F_GPFS_ATTR(file) = match;
++	} else {
++		/* already added by gpfs_find_attr */
++		F_GPFS_ATTR(file) = gpfs_attr_list.count - 1;
++	}
++}
++
++void gpfs_send_attr(stat_x *sxp, int f)
++{
++	struct rsync_gpfs_attr	*a = sxp->gpfs_attr;
++
++	if (a && a->buf) {
++		int ndx = (use_gpfs_attr_cache) ? gpfs_find_attr(a) : -1;
++
++
++		/* write 1 if it was 0; means not in cache (yet), +1 */
++		/* +1 is to compress the GPFS_NDX_NOATTR better */
++		write_varint(f, ndx + 1 + 1);
++
++		if (ndx < 0) {
++
++			write_varint(f, a->size);
++			write_buf(f, a->buf, a->size);
++		}
++	} else {
++		/* we have no attribute for this file */
++
++		/* +1 is just because of the trivial compression
++		 * of the mostly awaited GPFS_NDX_NOATTR  */
++		write_varint(f, GPFS_NDX_NOATTR + 1);
++	}
++}
++
++static void gpfs_dump_attr(int ll, const char *fname, unsigned char *buf, int size)
++{
++	int	col;
++	unsigned int b;
++
++	rprintf(ll, "%s attr size: %d ptr: %lx\n", fname, size, (unsigned long)buf);
++
++	while(size) {
++		col = 16;
++		while(col && size) {
++			b = (unsigned int)(*(buf++));
++			rprintf(ll, "%.2x ", b);
++
++			col--;
++			size--;
++		}
++		rprintf(ll, "\n");
++	}
++}
++
++/*
++ * return: 0 on success, -1 on error
++ */
++int gpfs_get_attr(const char *fname, stat_x *sxp)
++{
++	int	rc, fd;
++	struct rsync_gpfs_attr *a;
++
++	fd = open(fname, O_RDONLY | O_DIRECT | O_NOATIME | O_NOFOLLOW
++				| O_NONBLOCK | O_BINARY);
++	if (fd==-1) {
++		gpfs_free_sxp(sxp); /* makes sxp->gpfs_attr=NULL */
++		rprintf(FWARNING, "gpfs_get_attr: failed to open file %s errno %d\n",
++			fname, errno);
++		return -1;
++	}
++
++	a = new(struct rsync_gpfs_attr);
++	if (!a)
++		out_of_memory("gpfs_get_attr#1");
++
++	a->buf = malloc(GPFS_ATTR_SIZE_INIT);
++	if (!a->buf)
++		out_of_memory("gpfs_get_attr#2");
++	a->size = GPFS_ATTR_SIZE_INIT;
++	rc = gpfs_fgetattrs(fd, gpfs_attr_flags, a->buf, a->size, &a->size);
++	if (rc==-1 && (errno==ENOSPC || errno==ERANGE)) {
++		free(a->buf);
++		a->buf = malloc(a->size);
++		if (!a->buf) {
++			rprintf(FERROR, "malloc of gpfs_fgetattrs failed (size: %d)\n",
++				a->size);
++			exit_cleanup(RERR_MALLOC);
++		}
++		rc = gpfs_fgetattrs(fd, gpfs_attr_flags, a->buf, a->size, &a->size);
++		if (rc) {
++			rprintf(FWARNING, "gpfs_fgetattrs failed (%d, %d, %d)\n",
++				a->size, rc, errno);
++			free(a->buf);
++			a->buf = NULL;
++		} else {
++			/* a good case: do nothing here */
++		}
++	} else if (!rc) {
++		if (a->size==0) {
++			/* we don't have any attribute for this path */
++			free(a->buf);
++			a->buf = NULL;
++		} else {
++			/* don't waste memory */
++			a->buf = realloc(a->buf, a->size);
++			if (!a->buf) {
++				rprintf(FERROR, "realloc of gpfs_fgetattrs failed (size: %d)\n",
++					a->size);
++				exit_cleanup(RERR_MALLOC);
++			}
++			/* a good case */
++		}
++	} else { /* other error (e.g. permission problem) */
++		rprintf(FWARNING, "gpfs_fgetattrs failed (%s, %d, %d, %d)\n",
++			fname, a->size, rc, errno);
++		free(a->buf);
++		a->buf = NULL;
++	}
++
++	if (!a->buf)
++		a->size = 0;
++
++	sxp->gpfs_attr = a;
++	/* now each case has assigned sxp->gpfs_attr->buf */
++
++	close(fd);
++	return (rc ? -1 : 0);
++}
++
++/*
++ * return: 0 on success, error otherwise
++ */
++int gpfs_set_attr(const char *fname, struct file_struct *file)
++{
++	int	rc;
++	int	fd;
++	int	ndx = F_GPFS_ATTR(file);
++
++
++	fd = open(fname, O_RDONLY | O_DIRECT | O_NOATIME |  O_NOFOLLOW
++				| O_NONBLOCK | O_BINARY);
++	if (fd==-1) {
++		rprintf(FWARNING, "gpfs_set_attr: failed to open file %s errno %d\n",
++			fname, errno);
++		return -1;
++	}
++
++	if (dry_run) {
++		close(fd);
++		return 0;
++	}
++
++	if (ndx == GPFS_NDX_NOATTR) {
++		/* remove any attribute */
++		rc = gpfs_fputattrs(fd, gpfs_attr_flags, NULL);
++		if (rc) {
++			rprintf(FWARNING, "gpfs_fputattrs failed (%s, %d, %d, NULL)\n",
++				fname, rc, errno);
++		}
++	} else {
++		struct rsync_gpfs_attr *a = gpfs_attr_list.items;
++		a += ndx;
++
++		if (a->buf==NULL) {
++			rprintf(FERROR, "gpfs_set_attr internal error (%s, %d)\n",
++				fname, ndx);
++			rc = -1;
++		} else {
++			rc = gpfs_fputattrs(fd, gpfs_attr_flags, a->buf);
++			if (rc) {
++				rprintf(FWARNING, "gpfs_fputattrs failed (%s, %d, %d, %d)\n",
++					fname, a ? a->size : -1, rc, errno);
++			}
++		}
++	}
++
++	close(fd);
++	return rc;
++}
++
++int gpfs_attr_get_changed(const char *fname, struct file_struct *file, stat_x *sxp)
++{
++	struct rsync_gpfs_attr *a;
++	int	has_changed;
++
++	if (!sxp->gpfs_attr) {
++		if (gpfs_get_attr(fname, sxp))
++			return 0;
++	}
++
++	if (F_GPFS_ATTR(file)>=0) {
++		a = gpfs_attr_list.items;
++		a += F_GPFS_ATTR(file);
++		has_changed = gpfs_attr_cmp(a, sxp->gpfs_attr);
++	} else {
++		has_changed = (sxp->gpfs_attr!=NULL &&
++			sxp->gpfs_attr->size != 0);
++	}
++
++
++	return has_changed;
++}
++
+diff -rupN rsync-3.0.9/lib/bst.c rsync-3.0.9-patched/lib/bst.c
+--- rsync-3.0.9/lib/bst.c	1970-01-01 01:00:00.000000000 +0100
++++ rsync-3.0.9-patched/lib/bst.c	2012-10-01 09:41:39.654173885 +0100
+@@ -0,0 +1,142 @@
++/*
++ * Binary search tree
++ * Written by Peter Somogyi
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program; if not, visit the http://fsf.org website.
++ */
++
++#include "bst.h"
++#include <stdlib.h>
++#include <string.h>
++
++
++static struct bst_node *bst_alloc_node(unsigned long key, unsigned long data)
++{
++	struct bst_node *node = (struct bst_node *)malloc(sizeof(struct bst_node));
++
++	if (!node)
++		return NULL;
++
++	memset(node, 0, sizeof(struct bst_node));
++	node->key = key;
++	node->data = data;
++
++	return node;
++}
++
++struct bst_tree *bst_new_tree(void)
++{
++	struct bst_tree *tree = (struct bst_tree *)malloc(sizeof(struct bst_tree));
++
++	if (!tree)
++		return NULL;
++
++	memset(tree, 0, sizeof(struct bst_tree));
++
++	return tree;
++}
++
++int bst_insert(struct bst_tree *tree, unsigned long key, int data, int *ex_data)
++{
++	struct bst_node	*node = (struct bst_node *)tree->root;
++	struct bst_node	*next = node;
++	int	depth = 0;
++
++	if (!tree)
++		return -2;
++
++	/* avoid recursion, we can have hundred thousands of nodes */
++	while(next) {
++		/* this needs to be FAST */
++		depth++;
++		node = next;
++		if (node->key < key) {
++			next = node->right;
++		} else if (node->key > key) {
++			next = node->left;
++		} else { /* equal: */
++			*ex_data = node->data;
++			tree->hit++;
++			return 1;
++		}
++	}
++
++	next = bst_alloc_node(key, data);
++	if (!next)
++		return -1;
++
++	/* insert it */
++	if (node) {
++		if (key < node->key)
++			node->left = next;
++		else
++			node->right = next; 
++	} else {
++		tree->root = next;
++	}
++
++	/* update statistics */
++	if (tree->depth < depth)
++		tree->depth = depth;
++
++        tree->nodes++;
++
++	return 0;
++}
++
++int bst_free(struct bst_tree *tree)
++{
++	struct bst_node	**nlist;
++	struct bst_node	*node;
++	int	depth = 0;
++	int	rc = 0;
++	int	count = 0;
++
++	if (!tree)
++		return -2;
++
++	nlist = (struct bst_node **)malloc(sizeof(struct bst_node *) * (tree->depth + 1));
++	if (!nlist)
++		return -1;
++
++	nlist[depth] = tree->root;
++
++	while(depth>=0 && nlist[depth]) {
++		node = nlist[depth];
++
++		if (node->right) {
++			if (depth >= tree->depth)
++				return -4;
++			nlist[++depth] = node->right;
++			node->right = NULL;
++		} else if (node->left) {
++			if (depth >= tree->depth)
++				return -5;
++			nlist[++depth] = node->left;
++			node->left = NULL;
++		} else {
++			free(node);
++			count++;
++			depth--;
++		}
++	}
++
++	if (count != tree->nodes)
++		rc = -3;
++
++	free(nlist);
++	free(tree);
++
++	return rc;
++}
+diff -rupN rsync-3.0.9/lib/bst.h rsync-3.0.9-patched/lib/bst.h
+--- rsync-3.0.9/lib/bst.h	1970-01-01 01:00:00.000000000 +0100
++++ rsync-3.0.9-patched/lib/bst.h	2012-10-01 09:41:39.654173885 +0100
+@@ -0,0 +1,30 @@
++
++struct bst_node {
++	struct bst_node *left;
++	struct bst_node *right;
++	unsigned long key;
++ 	int data; /* any custom value */
++};
++
++struct bst_tree {
++	struct bst_node *root;
++
++	/* statistics */
++	/* if depth is comparable to #nodes,
++	 * don't use this data structure ! */
++	int	depth;
++	int	nodes;
++	int	hit;
++};
++
++struct bst_tree *bst_new_tree(void);
++
++/* Instert 'data' with 'key'
++ * Worst case is O(n), but with almost random keys
++ * the average will be log n
++ */
++int bst_insert(struct bst_tree *tree, unsigned long key, int data, int *ex_data);
++
++/* return 0 on success */
++int bst_free(struct bst_tree *tree);
++
+diff -rupN rsync-3.0.9/log.c rsync-3.0.9-patched/log.c
+--- rsync-3.0.9/log.c	2011-01-30 03:25:53.000000000 +0000
++++ rsync-3.0.9-patched/log.c	2012-10-01 09:41:39.654173885 +0100
+@@ -661,7 +661,8 @@ static void log_formatted(enum logcode c
+ 			c[8] = !(iflags & ITEM_REPORT_ATIME) ? '.' : 'u';
+ 			c[9] = !(iflags & ITEM_REPORT_ACL) ? '.' : 'a';
+ 			c[10] = !(iflags & ITEM_REPORT_XATTR) ? '.' : 'x';
+-			c[11] = '\0';
++			c[11] = !(iflags & ITEM_REPORT_GPFS_ATTR) ? '.' : 'G';
++			c[12] = '\0';
+ 
+ 			if (iflags & (ITEM_IS_NEW|ITEM_MISSING_DATA)) {
+ 				char ch = iflags & ITEM_IS_NEW ? '+' : '?';
+diff -rupN rsync-3.0.9/Makefile.in rsync-3.0.9-patched/Makefile.in
+--- rsync-3.0.9/Makefile.in	2011-03-26 17:01:37.000000000 +0000
++++ rsync-3.0.9-patched/Makefile.in	2012-10-01 09:41:39.646173856 +0100
+@@ -29,13 +29,13 @@ VERSION=@VERSION@
+ GENFILES=configure.sh config.h.in proto.h proto.h-tstamp rsync.1 rsyncd.conf.5
+ HEADERS=byteorder.h config.h errcode.h proto.h rsync.h ifuncs.h lib/pool_alloc.h
+ LIBOBJ=lib/wildmatch.o lib/compat.o lib/snprintf.o lib/mdfour.o lib/md5.o \
+-	lib/permstring.o lib/pool_alloc.o lib/sysacls.o lib/sysxattrs.o @LIBOBJS@
++	lib/permstring.o lib/pool_alloc.o lib/sysacls.o lib/sysxattrs.o lib/bst.o @LIBOBJS@
+ ZLIBOBJ=zlib/deflate.o zlib/inffast.o zlib/inflate.o zlib/inftrees.o \
+ 	zlib/trees.o zlib/zutil.o zlib/adler32.o zlib/compress.o zlib/crc32.o
+ OBJS1=flist.o rsync.o generator.o receiver.o cleanup.o sender.o exclude.o \
+ 	util.o main.o checksum.o match.o syscall.o log.o backup.o
+ OBJS2=options.o io.o compat.o hlink.o token.o uidlist.o socket.o hashtable.o \
+-	fileio.o batch.o clientname.o chmod.o acls.o xattrs.o
++	fileio.o batch.o clientname.o chmod.o acls.o xattrs.o gpfs.o
+ OBJS3=progress.o pipe.o
+ DAEMON_OBJ = params.o loadparm.o clientserver.o access.o connection.o authenticate.o
+ popt_OBJS=popt/findme.o  popt/popt.o  popt/poptconfig.o \
+diff -rupN rsync-3.0.9/options.c rsync-3.0.9-patched/options.c
+--- rsync-3.0.9/options.c	2011-09-13 23:41:26.000000000 +0100
++++ rsync-3.0.9-patched/options.c	2012-10-01 10:09:02.380561174 +0100
+@@ -52,6 +52,8 @@ int preserve_links = 0;
+ int preserve_hard_links = 0;
+ int preserve_acls = 0;
+ int preserve_xattrs = 0;
++int preserve_gpfs_attrs = 0;
++int use_gpfs_attr_cache = 0;
+ int preserve_perms = 0;
+ int preserve_executability = 0;
+ int preserve_devices = 0;
+@@ -220,6 +222,7 @@ static void print_rsync_version(enum log
+ 	char const *symtimes = "no ";
+ 	char const *acls = "no ";
+ 	char const *xattrs = "no ";
++	char const *gpfs = "no ";
+ 	char const *links = "no ";
+ 	char const *iconv = "no ";
+ 	char const *ipv6 = "no ";
+@@ -244,6 +247,9 @@ static void print_rsync_version(enum log
+ #ifdef SUPPORT_XATTRS
+ 	xattrs = "";
+ #endif
++#ifdef SUPPORT_GPFS
++	gpfs = "";
++#endif
+ #ifdef SUPPORT_LINKS
+ 	links = "";
+ #endif
+@@ -269,8 +275,8 @@ static void print_rsync_version(enum log
+ 		(int)(sizeof (int64) * 8));
+ 	rprintf(f, "    %ssocketpairs, %shardlinks, %ssymlinks, %sIPv6, batchfiles, %sinplace,\n",
+ 		got_socketpair, hardlinks, links, ipv6, have_inplace);
+-	rprintf(f, "    %sappend, %sACLs, %sxattrs, %siconv, %ssymtimes\n",
+-		have_inplace, acls, xattrs, iconv, symtimes);
++	rprintf(f, "    %sappend, %sACLs, %sxattrs, %sgpfs, %siconv, %ssymtimes\n",
++		have_inplace, acls, xattrs, gpfs, iconv, symtimes);
+ 
+ #ifdef MAINTAINER_MODE
+ 	rprintf(f, "Panic Action: \"%s\"\n", get_panic_action());
+@@ -345,6 +351,10 @@ void usage(enum logcode F)
+ #ifdef SUPPORT_XATTRS
+   rprintf(F," -X, --xattrs                preserve extended attributes\n");
+ #endif
++#ifdef SUPPORT_GPFS
++  rprintf(F,"     --gpfs-attrs            preserve gpfs attributes\n");
++  rprintf(F,"     --gpfs-attr-cache       do caching for gpfs attributes\n");
++#endif
+   rprintf(F," -o, --owner                 preserve owner (super-user only)\n");
+   rprintf(F," -g, --group                 preserve group\n");
+   rprintf(F,"     --devices               preserve device files (super-user only)\n");
+@@ -485,6 +495,8 @@ static struct poptOption long_options[]
+   {"no-A",             0,  POPT_ARG_VAL,    &preserve_acls, 0, 0, 0 },
+   {"xattrs",          'X', POPT_ARG_NONE,   0, 'X', 0, 0 },
+   {"no-xattrs",        0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
++  {"gpfs-attrs",       0,  POPT_ARG_VAL,    &preserve_gpfs_attrs, 1, 0, 0 },
++  {"gpfs-attr-cache",  0,  POPT_ARG_VAL,    &use_gpfs_attr_cache, 1, 0, 0 },
+   {"no-X",             0,  POPT_ARG_VAL,    &preserve_xattrs, 0, 0, 0 },
+   {"times",           't', POPT_ARG_VAL,    &preserve_times, 1, 0, 0 },
+   {"no-times",         0,  POPT_ARG_VAL,    &preserve_times, 0, 0, 0 },
+diff -rupN rsync-3.0.9/rsync.c rsync-3.0.9-patched/rsync.c
+--- rsync-3.0.9/rsync.c	2011-02-22 18:48:13.000000000 +0000
++++ rsync-3.0.9-patched/rsync.c	2012-10-01 09:49:27.635934041 +0100
+@@ -31,6 +31,7 @@ extern int verbose;
+ extern int dry_run;
+ extern int preserve_acls;
+ extern int preserve_xattrs;
++extern int preserve_gpfs_attrs;
+ extern int preserve_perms;
+ extern int preserve_executability;
+ extern int preserve_times;
+@@ -397,6 +398,9 @@ int set_file_attrs(const char *fname, st
+ #ifdef SUPPORT_XATTRS
+ 		sx2.xattr = NULL;
+ #endif
++#ifdef SUPPORT_GPFS
++		sx2.gpfs_attr = NULL;
++#endif
+ 		sxp = &sx2;
+ 		inherit = !preserve_perms;
+ 	} else
+@@ -514,6 +518,17 @@ int set_file_attrs(const char *fname, st
+ 			updated = 1;
+ 	}
+ #endif
++#ifdef SUPPORT_GPFS
++	/* after chmod */
++        if (preserve_gpfs_attrs) {
++		if (gpfs_attr_get_changed(fname, file, sxp)) {
++			if (gpfs_set_attr(fname, file) == 0) {
++				updated = 1;
++			}
++		}
++	}
++#endif
++
+ 
+ 	if (verbose > 1 && flags & ATTRS_REPORT) {
+ 		if (updated)
+@@ -531,6 +546,10 @@ int set_file_attrs(const char *fname, st
+ 		if (preserve_xattrs)
+ 			free_xattr(&sx2);
+ #endif
++#ifdef SUPPORT_GPFS
++		if (preserve_gpfs_attrs)
++			gpfs_free_sxp(&sx2);
++#endif
+ 	}
+ 	return updated;
+ }
+diff -rupN rsync-3.0.9/rsync.h rsync-3.0.9-patched/rsync.h
+--- rsync-3.0.9/rsync.h	2011-02-21 19:32:51.000000000 +0000
++++ rsync-3.0.9-patched/rsync.h	2012-10-01 09:41:39.658173899 +0100
+@@ -186,6 +186,7 @@
+ #define ITEM_REPORT_GROUP (1<<6)
+ #define ITEM_REPORT_ACL (1<<7)
+ #define ITEM_REPORT_XATTR (1<<8)
++#define ITEM_REPORT_GPFS_ATTR (1<<9)
+ #define ITEM_BASIS_TYPE_FOLLOWS (1<<11)
+ #define ITEM_XNAME_FOLLOWS (1<<12)
+ #define ITEM_IS_NEW (1<<13)
+@@ -691,6 +692,7 @@ extern int xattrs_ndx;
+ #define F_GROUP(f) REQ_EXTRA(f, gid_ndx)->unum
+ #define F_ACL(f) REQ_EXTRA(f, acls_ndx)->num
+ #define F_XATTR(f) REQ_EXTRA(f, xattrs_ndx)->num
++#define F_GPFS_ATTR(f) REQ_EXTRA(f, gpfs_attrs_ndx)->num
+ #define F_NDX(f) REQ_EXTRA(f, unsort_ndx)->num
+ 
+ /* These items are per-entry optional: */
+@@ -927,6 +929,9 @@ typedef struct {
+ #ifdef SUPPORT_XATTRS
+     item_list *xattr;
+ #endif
++#ifdef SUPPORT_GPFS
++    struct rsync_gpfs_attr *gpfs_attr; /* gpfs ACL + attributes */
++#endif
+ } stat_x;
+ 
+ #define ACL_READY(sx) ((sx).acc_acl != NULL)
