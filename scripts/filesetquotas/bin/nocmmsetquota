@@ -1,0 +1,7 @@
+#!/bin/sh
+echo "*** Edit quota limits for FILESET $fileset " > /tmp/setquota.tmp
+echo "NOTE: block limits will be rounded up to the next multiple of the block size." >> /tmp/setquota.tmp
+echo "      block units may be: K, M, or G." >> /tmp/setquota.tmp
+echo "NOC: blocks in use: 0K, limits (soft = ${size}G, hard = ${size}G)" >> /tmp/setquota.tmp
+echo "        inodes in use: 0, limits (soft = 0, hard = 0)" >> /tmp/setquota.tmp
+/bin/cp  /tmp/setquota.tmp $1

@@ -1,0 +1,18 @@
+Couple of scripts here.
+
+mkfileset:
+
+	Creates a fileset (currently in a filesystem called NOC) hanging off the
+    root of the filesystem. 
+	The clever bit (if there is one) is that it fudges mmedquota to allow you
+    to set a fileset  quota without going into vi
+	
+	Syntax is mkfileset filesetname size(GB) path description"
+
+	Where: path is the subpath for the fileset - ie for /NOC/TEST path would
+    be TEST.
+
+
+gpfsdf:
+	lists all filesets on a filesystem (currently hard coded to NOC) together 
+    with their quotas and useage.

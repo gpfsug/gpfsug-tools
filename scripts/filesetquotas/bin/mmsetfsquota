@@ -1,0 +1,22 @@
+#!/bin/tcsh
+
+if $1 == ''  then
+	echo "mmsetfsquota filesetname size(Gb)"
+	exit
+endif
+# Read arguaments and setup parameters.
+# mkfileset filesetname quota path
+set fileset=$1
+setenv fileset $1
+set size=$2
+setenv size $2
+
+echo "Changing quota of fileset $fileset to size $size."
+
+#Setup the commands to fiddle setting the quotas non-interactivly
+setenv EDITOR "/root/migrate/nocmmsetquota"
+
+#Set the quota
+/usr/lpp/mmfs/bin/mmedquota -j $fileset
+mmlsquota -j  $fileset | grep NOC | awk '{print "Fileset "ENVIRON["fileset"]": Used: " $3/1024/1024"Gb Quota: " $4/1024/1024"Gb"}'
+

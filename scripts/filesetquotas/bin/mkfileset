@@ -1,0 +1,42 @@
+#!/bin/tcsh
+
+if $1 == ''  then
+	echo "mkfileset filesetname size(Gb) path description "
+	exit
+endif
+
+# Read arguments and setup parameters.
+# mkfileset filesetname quota path
+set fileset=$1
+setenv fileset $1
+set size=$2
+setenv size $2
+set gpfspath = /gpfs/NOC/$3
+setenv gpfspath /gpfs/NOC/$3
+set gpfstext="$4"
+setenv gpfstext "$4"
+
+echo "Creating fileset $fileset at $gpfspath of size $size with description $gpfstext "
+
+#Make the directory on which we wish to mount the FS if it doesn't already exist
+/bin/mkdir -p $gpfspath:h
+
+# Make and link in the fileset
+/usr/lpp/mmfs/bin/mmcrfileset NOC $fileset -t "$gpfstext"
+/usr/lpp/mmfs/bin/mmlinkfileset NOC $fileset -J $gpfspath
+
+#Setup the commands to fiddle setting the quotas non-interactivly
+#setenv EDITOR "/root/ocf/gpfs/bin/nocmmsetquota"
+setenv EDITOR "`pwd`/nocmmsetquota"
+
+#Set the quota
+/usr/lpp/mmfs/bin/mmedquota -j NOC:$fileset
+
+#Make a policy file which makes all filesets write to the data pool
+#/usr/lpp/mmfs/bin/mmlsfileset NOC | /bin/grep -v 'Name                     Status    Path' | /bin/grep -v 'Filesets in file' | /usr/bin/awk '{print "RULE SET POOL \047data\047 FOR FILESET \050\047"$1"\047\051"}' > policyfile
+
+# Set the policy
+#/usr/lpp/mmfs/bin/mmchpolicy NOC policyfile -I yes
+
+#List the policy
+#/usr/lpp/mmfs/bin/mmlspolicy NOC -L

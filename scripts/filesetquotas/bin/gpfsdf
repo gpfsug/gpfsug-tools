@@ -1,0 +1,83 @@
+#!/usr/bin/python -d
+import os
+import string
+import sys
+import datetime
+import time
+
+
+#here we see if we've been run with any options. If none then we set the flag 'all' and later 
+#on will print out all filesystems including GPFS and standard.
+
+ioutfile='/tmp/'+str(time.time())
+cmd = '/usr/lpp/mmfs/bin/mmrepquota -j NOC > '+ioutfile
+os.system(cmd,)
+
+f=open(ioutfile)
+f.readline()
+f.readline()
+lines = f.readlines()
+f.close()
+cmd = 'rm -f '+ioutfile
+os.system(cmd,)
+#Split it into lines
+fsettable =  [line.split() for line in lines]
+# Make a database out of it
+fsetDict={}
+# Populate the database checkng for duplicate paths
+for x in fsettable:
+        if fsetDict.has_key(x[0]):
+                print 'Duplicate path'+fsetDict[x[1]]
+                break
+        fsetDict[x[0]] = [x[2],x[3],x[4],x[5],x[8]]
+#  fileset   Used   quota  limit  in_doubt  Number_of_files
+#print fsetDict
+cmd = '/usr/lpp/mmfs/bin/mmlsfileset NOC > '+ioutfile
+os.system(cmd,)
+f=open(ioutfile)
+f.readline()
+f.readline()
+f.readline()
+lines = f.readlines()
+f.close()
+cmd = 'rm -f '+ioutfile
+os.system(cmd,)
+#Split it into lines
+table =  [line.split() for line in lines]
+# Make a database out of it
+pathDict={}
+for x in table:
+        if pathDict.has_key(x[0]):
+                print 'Duplicate ID'+pathDict[x[0]]
+                exit()
+        pathDict[x[0]] = x[2]
+#print pathDict
+# Print out the headers times etc
+print
+print 'Path'.ljust(39)+'Fileset'.ljust(26)+'Quota(Gb)'.rjust(10)+'Used(Gb)'.rjust(10)+"Files".rjust(10)
+print
+
+# For all of the filesets in the list
+total=0
+totalf=0
+totalQ=0
+seq = pathDict.keys()
+seq.sort(lambda x, y: cmp(x.lower(), y.lower()))
+for fileset in seq:
+	#print fileset
+        #Pull out the path from the entry
+        thispath = pathDict[fileset]
+	#print thispath
+        # Find the 
+        if fsetDict.has_key(fileset):
+		quota = int(fsetDict[fileset][1])/1024/1024
+		used = float(fsetDict[fileset][0])/1024/1024
+		files = int(fsetDict[fileset][4])
+                #print "/noc"+str(thispath)[9:].ljust(35)+fileset.ljust(30)+str(quota).ljust(14)+str(used).ljust(14)+str(files).ljust(10)
+                print "/noc"+str(thispath)[9:].ljust(35)+fileset.ljust(26)+str(quota).rjust(8)+"%12.3f"%used+str(files).rjust(10)
+                total = total+used
+                totalf = totalf+files
+                totalQ = totalQ+quota
+print
+print 'Total'.ljust(68)+str(totalQ).ljust(4)+"%12.3f "%total+str(totalf).rjust(9)
+print
