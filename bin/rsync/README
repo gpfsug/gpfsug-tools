@@ -1,9 +1,11 @@
 rsync-3.0.9-patched/
-  - patched version of the 3.0.9 release of rsync, which can be obtained from: 
+  - patched version of the 3.0.9 release of rsync, with rudimentary GPFS NFSv4 ACL copying support 
+  - GPFS posix acl support ought to work fine in native rsync, this patch is just for GPFS NFSv4 support
+  - rsync 3.0.9 source can be obtained from: 
      http://rsync.samba.org/ftp/rsync/src/rsync-3.0.9.tar.gz
   - the patch is: 
      gpfs_support_rsync-3.0.9.patch 
-    which adds rudimentary ACL copying support to rsync - the code for which comes from here:
+    which adds rudimentary NFSv4 ACL copying support to rsync - the code for which comes from here:
      http://lists.samba.org/archive/rsync/2008-October/021963.html
   - Prerequisite is, at least, libacl development headers - in Ubuntu 12.04, this can be obtained with (for example):
      sudo apt-get install libacl1-dev 
