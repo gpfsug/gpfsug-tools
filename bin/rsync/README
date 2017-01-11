@@ -108,5 +108,16 @@ group:223456:rwxc:allow:FileInherit:DirInherit
 
 
 
+# Troubleshooting:
 
+Did not work:
+/opt/rsync.gpfs/bin/rsync -avzh  --progress --gpfs-attrs --gpfs-timepreserve --rsync-path=/opt/rsync.gpfs/bin/rsync /gpfs1/dir $remoteip:/gpfs1/dir
+sending incremental file list
+File-list index 0 not in 0 - -1 (read_ndx_and_attrs) [receiver]
+rsync error: protocol incompatibility (code 2) at rsync.c(710) [receiver=3.1.0dev]
+rsync: connection unexpectedly closed (9 bytes received so far) [sender]
+rsync error: error in rsync protocol data stream (code 12) at io.c(608) [sender=3.1.0dev]
+
+Does work!
+/opt/rsync.gpfs/bin/rsync -avzh --progress  --gpfs-attrs --gpfs-timepreserve --rsync-path='/opt/rsync.gpfs/bin/rsync --gpfs-attrs  --gpfs-timepreserve --progress' /gpfs1/dir $remoteip:/gpfs1/dir
 
