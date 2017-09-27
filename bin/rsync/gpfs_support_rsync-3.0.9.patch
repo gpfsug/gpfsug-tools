@@ -300,8 +300,8 @@ diff -rupN rsync-3.0.9/generator.c rsync-3.0.9-patched/generator.c
  
 diff -rupN rsync-3.0.9/gpfs.c rsync-3.0.9-patched/gpfs.c
 --- rsync-3.0.9/gpfs.c	1970-01-01 01:00:00.000000000 +0100
-+++ rsync-3.0.9-patched/gpfs.c	2012-10-01 09:51:30.836403433 +0100
-@@ -0,0 +1,578 @@
++++ rsync-3.0.9-patched/gpfs.c	2017-09-27 17:15:09.172044705 +0100
+@@ -0,0 +1,595 @@
 +/*
 + * GPFS support for rsync.
 + * Written by Peter Somogyi
@@ -738,63 +738,81 @@ diff -rupN rsync-3.0.9/gpfs.c rsync-3.0.9-patched/gpfs.c
 +{
 +	int	rc, fd;
 +	struct rsync_gpfs_attr *a;
++  struct stat sb;
 +
-+	fd = open(fname, O_RDONLY | O_DIRECT | O_NOATIME | O_NOFOLLOW
-+				| O_NONBLOCK | O_BINARY);
-+	if (fd==-1) {
-+		gpfs_free_sxp(sxp); /* makes sxp->gpfs_attr=NULL */
-+		rprintf(FWARNING, "gpfs_get_attr: failed to open file %s errno %d\n",
-+			fname, errno);
-+		return -1;
-+	}
++  if (lstat(fname, &sb) == -1) {
++    rprintf(FWARNING, "failed to stat file %s\n", fname);
++    return -1;
++  }
 +
-+	a = new(struct rsync_gpfs_attr);
-+	if (!a)
-+		out_of_memory("gpfs_get_attr#1");
++  a = new(struct rsync_gpfs_attr);
 +
-+	a->buf = malloc(GPFS_ATTR_SIZE_INIT);
-+	if (!a->buf)
-+		out_of_memory("gpfs_get_attr#2");
-+	a->size = GPFS_ATTR_SIZE_INIT;
-+	rc = gpfs_fgetattrs(fd, gpfs_attr_flags, a->buf, a->size, &a->size);
-+	if (rc==-1 && (errno==ENOSPC || errno==ERANGE)) {
-+		free(a->buf);
-+		a->buf = malloc(a->size);
-+		if (!a->buf) {
-+			rprintf(FERROR, "malloc of gpfs_fgetattrs failed (size: %d)\n",
-+				a->size);
-+			exit_cleanup(RERR_MALLOC);
-+		}
-+		rc = gpfs_fgetattrs(fd, gpfs_attr_flags, a->buf, a->size, &a->size);
-+		if (rc) {
-+			rprintf(FWARNING, "gpfs_fgetattrs failed (%d, %d, %d)\n",
-+				a->size, rc, errno);
-+			free(a->buf);
-+			a->buf = NULL;
-+		} else {
-+			/* a good case: do nothing here */
-+		}
-+	} else if (!rc) {
-+		if (a->size==0) {
-+			/* we don't have any attribute for this path */
-+			free(a->buf);
-+			a->buf = NULL;
-+		} else {
-+			/* don't waste memory */
-+			a->buf = realloc(a->buf, a->size);
-+			if (!a->buf) {
-+				rprintf(FERROR, "realloc of gpfs_fgetattrs failed (size: %d)\n",
-+					a->size);
-+				exit_cleanup(RERR_MALLOC);
-+			}
-+			/* a good case */
-+		}
-+	} else { /* other error (e.g. permission problem) */
-+		rprintf(FWARNING, "gpfs_fgetattrs failed (%s, %d, %d, %d)\n",
-+			fname, a->size, rc, errno);
-+		free(a->buf);
-+		a->buf = NULL;
-+	}
++  switch (sb.st_mode & S_IFMT) {
++    case S_IFLNK:
++      // If it's a Smylink, we can't open the file. So we leave attrs empty
++      a->buf = NULL;
++      a->size = 0;
++      rc = 0;
++      break;
++    default:
++      fd = open(fname, O_RDONLY | O_DIRECT | O_NOATIME | O_NOFOLLOW
++            | O_NONBLOCK | O_BINARY);
++      if (fd==-1) {
++        gpfs_free_sxp(sxp); /* makes sxp->gpfs_attr=NULL */
++        rprintf(FWARNING, "gpfs_get_attr: failed to open file %s errno %d\n",
++          fname, errno);
++        return -1;
++      }
++
++      if (!a)
++        out_of_memory("gpfs_get_attr#1");
++
++      a->buf = malloc(GPFS_ATTR_SIZE_INIT);
++      if (!a->buf)
++        out_of_memory("gpfs_get_attr#2");
++      a->size = GPFS_ATTR_SIZE_INIT;
++      rc = gpfs_fgetattrs(fd, gpfs_attr_flags, a->buf, a->size, &a->size);
++      if (rc==-1 && (errno==ENOSPC || errno==ERANGE)) {
++        free(a->buf);
++        a->buf = malloc(a->size);
++        if (!a->buf) {
++          rprintf(FERROR, "malloc of gpfs_fgetattrs failed (size: %d)\n",
++            a->size);
++          exit_cleanup(RERR_MALLOC);
++        }
++        rc = gpfs_fgetattrs(fd, gpfs_attr_flags, a->buf, a->size, &a->size);
++        if (rc) {
++          rprintf(FWARNING, "gpfs_fgetattrs failed (%d, %d, %d)\n",
++            a->size, rc, errno);
++          free(a->buf);
++          a->buf = NULL;
++        } else {
++          /* a good case: do nothing here */
++        }
++      } else if (!rc) {
++        if (a->size==0) {
++          /* we don't have any attribute for this path */
++          free(a->buf);
++          a->buf = NULL;
++        } else {
++          /* don't waste memory */
++          a->buf = realloc(a->buf, a->size);
++          if (!a->buf) {
++            rprintf(FERROR, "realloc of gpfs_fgetattrs failed (size: %d)\n",
++              a->size);
++            exit_cleanup(RERR_MALLOC);
++          }
++          /* a good case */
++        }
++      } else { /* other error (e.g. permission problem) */
++        rprintf(FWARNING, "gpfs_fgetattrs failed (%s, %d, %d, %d)\n",
++          fname, a->size, rc, errno);
++        free(a->buf);
++        a->buf = NULL;
++      }
++      close(fd);
++      break;
++  }
 +
 +	if (!a->buf)
 +		a->size = 0;
@@ -802,7 +820,6 @@ diff -rupN rsync-3.0.9/gpfs.c rsync-3.0.9-patched/gpfs.c
 +	sxp->gpfs_attr = a;
 +	/* now each case has assigned sxp->gpfs_attr->buf */
 +
-+	close(fd);
 +	return (rc ? -1 : 0);
 +}
 +
