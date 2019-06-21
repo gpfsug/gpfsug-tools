@@ -54,7 +54,6 @@ replication protection for the TCT database files. This was done by:
 * and the following policy:
 
 ```
-  RULE 'repMcstore' SET POOL 'system'
-  REPLICATE(2) WHERE GROUP_ID = 2222
+  RULE 'repMcstore' SET POOL 'system' REPLICATE(2) WHERE GROUP_ID = 2222
 ```
 
