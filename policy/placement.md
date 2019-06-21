@@ -46,7 +46,9 @@ Only the following attributes are valid for placement rules:
 
 At TCT config for university of xyz, we too often experienced corrupted
 TCT database when we had down disks or crashes. Therefore we implemented
-replication protection for the TCT database files. This was done by:
+replication protection for the TCT database files. Since there is quite 
+set of attributes available for placement rules, we used a unique group
+id and directory sticky bit to achive this:
 
 * creating a separate group account with gid = 2222
 * chowning the .mcstore folder to "root:2222"
