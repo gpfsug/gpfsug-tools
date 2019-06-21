@@ -9,7 +9,7 @@ Note:
 
     While the severity can be set as INFO, WARNING, or ERROR, event_type must   be set to INFO.
 	
-    You can fill the cause, description, and message with descriptive tex      t. The message can include place holders in the form of n, where n is an integer value. These placeholders are filled with arguments that are provided at the time of raising the event. A new line (\n) must not be included in the message.
+You can fill the cause, description, and message with descriptive tex      t. The message can include place holders in the form of n, where n is an integer value. These placeholders are filled with arguments that are provided at the time of raising the event. A new line (\n) must not be included in the message.
 
 ```
 cat > /var/mmfs/mmsysmon/custom.json << 'EOF'
