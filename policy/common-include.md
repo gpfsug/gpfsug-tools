@@ -8,6 +8,8 @@ and then include this in all my policies with:
   include(/gpfs/gpfsmgmt/etc/common.include)
 ```
 
+OBS: Don't ut it in an installed policy for the filesystem it's located in! FS will then fail to mount.
+
 
 ```
 define( is_premigrated, (MISC_ATTRIBUTES LIKE '%M%' AND (MISC_ATTRIBUTES NOT LIKE '%V%')))
