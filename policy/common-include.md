@@ -11,6 +11,8 @@ and then include this in all my policies with:
 OBS: Don't ut it in an installed policy for the filesystem it's located in! FS will then fail to mount.
 
 
+Useful includes:
+
 ```
 define( is_premigrated, (MISC_ATTRIBUTES LIKE '%M%' AND (MISC_ATTRIBUTES NOT LIKE '%V%')))
 define( is_migrated,    (MISC_ATTRIBUTES LIKE '%V%') )
