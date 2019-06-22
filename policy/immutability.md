@@ -95,10 +95,10 @@ After running the above mmapplypolicy, we can see that files has gotten tagget i
 file name:            /mnt/gpfs01/testimmutability/51/51
 metadata replication: 1 max 2
 data replication:     1 max 2
-immutable:            yes
+immutable:            yes                           <<<------
 appendOnly:           no
 indefiniteRetention:  no
-expiration Time:      Fri Jun 28 00:00:00 2019
+expiration Time:      Fri Jun 28 00:00:00 2019      <<<------
 flags:
 storage pool name:    system
 fileset name:         testimmutability
