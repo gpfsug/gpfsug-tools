@@ -20,7 +20,7 @@ and some files:
 
 Unfortunately we can't manipulate the immutability directly in ILM policy, so
 we have to use the policy to generate a list of files -- and then give this to
-an external script. The policy for this can be f.ex. /root/set-immutable.policy:
+an external script. The policy for this can be f.ex. /root/set-immutable.policy containing:
 
 ~~~
 RULE EXTERNAL LIST 'setimmutable' EXEC '/root/set-immutable.sh' OPTS '7'
@@ -33,7 +33,7 @@ When applied using:
 # mmapplypolicy gpfs01 -P /root/set-immutable.policy -I yes
 ~~~
 
-This find all non-immutable files, and calls the script 
+this find all non-immutable files, and calls the script 
 "/root/set-immutable.sh" with the arguments $1=LIST, $2=FileList, $3=OPTS. 
 In the above policy our OPTS=7, which we use to tell how many days the 
 files should be immutable.  So we create a simple /root/set-immutable.sh 
