@@ -63,8 +63,8 @@ case $1 in
                 exit 0
         ;;
         LIST )
-                awk '{print 5}' $2 | xargs mmchattr -E $expiry
-                awk '{print 5}' $2 | xargs mmchattr -i yes
+                awk '{print $5}' $2 | xargs mmchattr -E $expiry
+                awk '{print $5}' $2 | xargs mmchattr -i yes
         ;;
 esac
 ~~~
