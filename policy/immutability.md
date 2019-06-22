@@ -68,3 +68,58 @@ case $1 in
         ;;
 esac
 ~~~
+
+## Testing
+
+First we validate that it finds an acceptable number of files, and that we don't have a bug that changes all files in the filesystem:
+
+~~~
+# mmapplypolicy gpfs01 -P /root/set-immutable.policy -I test
+<snip>
+[I] Summary of Rule Applicability and File Choices:
+ Rule#      Hit_Cnt          KB_Hit          Chosen       KB_Chosen          KB_Ill    Rule
+     0          100          512000             100          512000               0    RULE 'findImmutable' LIST 'setimmutable' FOR FILESET(.) WHERE(.)
+
+~~~
+
+Yup, we expected 100 files.. so lets do it:
+
+~~~
+# mmapplypolicy gpfs01 -P /root/set-immutable.policy -I yes
+~~~
+
+After running the above mmapplypolicy, we can see that files has gotten tagget immutable, and can't be deleted:
+
+~~~
+# mmlsattr -L /mnt/gpfs01/testimmutability/51/51
+file name:            /mnt/gpfs01/testimmutability/51/51
+metadata replication: 1 max 2
+data replication:     1 max 2
+immutable:            yes
+appendOnly:           no
+indefiniteRetention:  no
+expiration Time:      Fri Jun 28 00:00:00 2019
+flags:
+storage pool name:    system
+fileset name:         testimmutability
+snapshot name:
+creation time:        Fri Jun 21 13:45:43 2019
+Misc attributes:      ARCHIVE READONLY
+Encrypted:            no
+
+# rm -f /mnt/gpfs01/testimmutability/51/51
+rm: cannot remove ‘/mnt/gpfs01/testimmutability/51/51’: Read-only file system
+
+# mmchattr -i no /mnt/gpfs01/testimmutability/51/51
+/mnt/gpfs01/testimmutability/51/51: Change immutable flag failed: Operation not permitted.
+Can not set immutable or appendOnly flag to No and indefiniteRetention flag to Unchanged, Permission denied!
+
+~~~
+
+but since our fileset was only in "noncompliant" iam-mode, we can override the expiry and delete it anyways:
+
+~~~
+# mmchattr -E $(date --date yesterday  '+%Y-%m-%d') /mnt/gpfs01/testimmutability/51/51
+# rm -f /mnt/gpfs01/testimmutability/51/51
+
+~~~
