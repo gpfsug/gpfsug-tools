@@ -56,6 +56,7 @@ then
 	exit 1
 fi
 
+# Define expiry date on mmchattr format based on OPTS from policy:
 expiry=$(date --date +${3}days  '+%Y-%m-%d')
 
 case $1 in
