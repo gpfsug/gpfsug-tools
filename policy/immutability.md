@@ -1,6 +1,6 @@
 # Sample policy for making files immutable
 
-First we create our fileset:
+First we create our fileset, using "noncompliant" mode (in case we make a mistake and need to undo something):
 
 ~~~
 # mmcrfileset gpfs01 testimmutability --inode-space new
@@ -124,3 +124,8 @@ but since our fileset was only in "noncompliant" iam-mode, we can override the e
 # rm -f /mnt/gpfs01/testimmutability/51/51
 
 ~~~
+
+## Further ideas
+
+* Increase expiry after it runs out?
+* Progressive expiry -- Indefinite retention seems like a very long committment. Maybe a better option can be to tag new files for expiry in 7 days, re-tag 7-day expired files to expire in 30 days, re-tag 30-day expired files to expire in 1 year, etc... Then we always have the option of fixing mistakes some time in the future.
