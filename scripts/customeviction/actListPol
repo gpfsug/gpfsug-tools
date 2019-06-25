@@ -1,0 +1,9 @@
+RULE EXTERNAL LIST 'evictList' EXEC ''
+RULE 'evictRule' LIST 'evictList'
+  FROM POOL 'system'
+  THRESHOLD (90,80)
+  WEIGHT (CURRENT_TIMESTAMP - ACCESS_TIME)
+  WHERE REGEX (misc_attributes,'[P]')
+    AND KB_ALLOCATED > 0
+
+RULE 'default' SET POOL 'system'

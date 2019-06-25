@@ -1,0 +1,135 @@
+#!/bin/bash
+
+################################################################################
+# Name:            customEviction
+# Author:          Achim Christ - achim(dot)christ(at)gmail(dot)com
+# Version:         1.0
+################################################################################
+
+# Evicts files from all AFM filesets based on a threshold-based list policy.
+
+####################
+# Helper functions #
+####################
+
+# Treat unset variables as error
+set -u
+
+error_usage () {
+  echo "Usage: $0 -e %eventName -f %fsName -p %storagePool" >&2
+  exit 1
+}
+
+decode_path () {
+  printf '%b' "${1//%/\\x}"
+}
+
+#####################
+### Configuration ###
+#####################
+
+LOG="/mnt/gpfs01/customEviction.log"
+
+EVICT_FS="gpfs01"
+EVICT_POOL="system"
+EVICT_MOUNT="$(decode_path "$(/usr/lpp/mmfs/bin/mmlsfs "${EVICT_FS}" -TY | grep -v HEADER | cut -d ':' -f 9)")"
+
+LIST_DIR="$EVICT_MOUNT"
+LIST_NAME="evictList"
+
+####################################
+### Do not edit below this line! ###
+####################################
+
+# Check number of commandline options
+[ $# -ne 6 ] && error_usage
+
+# Check commandline options
+while getopts 'e:f:p:' OPT; do
+  case $OPT in
+    e) PARAM_EVENT=$OPTARG ;;
+    f) PARAM_FS=$OPTARG ;;
+    p) PARAM_POOL=$OPTARG ;;
+    *) error_usage ;;
+  esac
+done
+
+# Check for mandatory options
+[ -z "$PARAM_EVENT" ] || [ -z "$PARAM_FS" ] || [ -z "$PARAM_POOL" ] && error_usage
+
+#################
+# Sanity checks #
+#################
+
+# Redirect stdout and stderr to log file
+exec 1>>$LOG 2>&1
+
+# Check if another instance is already running
+PID="$(pidof -x "$(basename "$0")" -o %PPID)"
+[ -n "$PID" ] && echo "Already running with PID: $PID" && exit 0
+
+# Check if called with correct filesystem and pool
+[ "$PARAM_FS" != "$EVICT_FS" ] && echo "Not our FS: $PARAM_FS" && exit 0
+[ "$PARAM_POOL" != "$EVICT_POOL" ] && echo "Not our POOL: $PARAM_POOL" && exit 0
+
+echo -e "\n################################################################################\n"
+echo "$0 starting $(date -Im) on node $(/usr/lpp/mmfs/bin/mmlsnode -N localhost)..."
+
+# Read thresholds from filesystem policy
+HIGH_MIG="$(/usr/lpp/mmfs/bin/mmlspolicy "${PARAM_FS}" -L | grep THRESHOLD | sed -e 's/^.*THRESHOLD\s*(//' -e 's/,.*$//')"
+LOW_MIG="$(/usr/lpp/mmfs/bin/mmlspolicy "${PARAM_FS}" -L | grep THRESHOLD | sed -e 's/^.*THRESHOLD\s*([0-9]*,//' -e 's/).*$//')"
+
+# Debug output
+echo "PARAM_FS: $PARAM_FS | PARAM_POOL: $PARAM_POOL | HIGH_MIG: $HIGH_MIG | LOW_MIG: $LOW_MIG"
+
+#######################
+# Identify candidates #
+#######################
+
+# Clean up file list
+rm -f "${LIST_DIR}/list.${LIST_NAME}"
+
+# Generate file list by running list policy
+/usr/lpp/mmfs/bin/mmapplypolicy "${PARAM_FS}" \
+  -f "${LIST_DIR}/" \
+  -I defer \
+  -L 0
+
+# Check if candidates found
+[ ! -s "${LIST_DIR}/list.${LIST_NAME}" ] && echo "No candidates found!" && exit 1
+
+##################
+# Evict filesets #
+##################
+
+# Find AFM filesets
+EVICT_FSET="$(/usr/lpp/mmfs/bin/mmlsfileset "${PARAM_FS}" --afm -Y | grep -v HEADER | grep -E '(.*:){19}enabled:' | cut -d ':' -f 8)"
+
+# Iterate over filesets
+for fileset in $EVICT_FSET; do
+
+  # Find fileset's path
+  fileset_path="$(decode_path "$(/usr/lpp/mmfs/bin/mmlsfileset "${PARAM_FS}" "${fileset}" -Y | grep -v HEADER | cut -d ':' -f 12)")"
+
+  # Clean up file list
+  rm -f "${LIST_DIR}/${fileset}.${LIST_NAME}"
+
+  # Find candidates in fileset's path
+  grep -E "^[0-9]+\s[0-9]+\s[0-9]\s\s\s--\s${fileset_path}" "${LIST_DIR}/list.${LIST_NAME}" > "${LIST_DIR}/${fileset}.${LIST_NAME}"
+
+  # Check if candidates found
+  if [ -s "${LIST_DIR}/${fileset}.${LIST_NAME}" ]; then
+
+    echo "Evicting $(wc -l "${LIST_DIR}/${fileset}.${LIST_NAME}" | cut -d ' ' -f 1) files from ${fileset}..."
+
+    # Evict candidates from fileset
+    /usr/lpp/mmfs/bin/mmafmctl "${PARAM_FS}" evict \
+      -j "${fileset}" \
+      --list-file "${LIST_DIR}/${fileset}.${LIST_NAME}"
+
+  fi
+
+done
+
+echo "$0 finished $(date -Im)"
+exit 0
