@@ -128,4 +128,37 @@ but since our fileset was only in "noncompliant" iam-mode, we can override the e
 ## Further ideas
 
 * Increase expiry after it runs out?
+~~~
+RULE 'findExpiredImmutable' LIST 'setimmutable' FOR FILESET ('testimmutability') WHERE (MISC_ATTRIBUTES LIKE '%X%' AND CURRENT_TIMESTAMP > EXPIRATION_TIME)
+~~~
+
 * Progressive expiry -- Indefinite retention seems like a very long committment. Maybe a better option can be to tag new files for expiry in 7 days, re-tag 7-day expired files to expire in 30 days, re-tag 30-day expired files to expire in 1 year, etc... Then we always have the option of fixing mistakes some time in the future.
+~~~
+define( EXPIRY_DAYS,     (DAYS(EXPIRATION_TIME) - DAYS(CURRENT_TIMESTAMP)))
+
+RULE EXTERNAL LIST 'setimmutable7' EXEC '/root/set-immutable.sh' OPTS '7'
+RULE EXTERNAL LIST 'setimmutable30' EXEC '/root/set-immutable.sh' OPTS '30'
+RULE EXTERNAL LIST 'setimmutable365' EXEC '/root/set-immutable.sh' OPTS '365'
+
+/* Any new files are tagged as immutable for 7 days */
+RULE 'findImmutableNew' LIST 'setimmutable7' FOR FILESET ('testimmutability') WHERE NOT (MISC_ATTRIBUTES LIKE '%X%')
+
+/* If we have immutable expired files, reset to 7 day expiry */
+RULE 'findExpiredImmutable' LIST 'setimmutable7' FOR FILESET ('testimmutability') WHERE (MISC_ATTRIBUTES LIKE '%X%' AND EXPIRY_DAYS < 0)
+
+/* When there's less than 3 days until expiry, we extend to 30 day expiry */
+RULE 'findExpiringImmutable1' LIST 'setimmutable30' FOR FILESET ('testimmutability') WHERE (MISC_ATTRIBUTES LIKE '%X%' AND  EXPIRY_DAYS < 3)
+
+/* When there's 8-14 days until expiry, we extend to 365 day expiry */
+RULE 'findExpiringImmutable2' LIST 'setimmutable365' FOR FILESET ('testimmutability') WHERE (MISC_ATTRIBUTES LIKE '%X%' AND (EXPIRY_DAYS < 14) AND (EXPIRY_DAYS > 8))
+
+
+~~~
+
+## Bugs
+
+* Policy script fails on filenames with backslash ('file\name'):
+~~~
+<1> /mnt/gpfs01/testimmutability/yy/99/file\\name: Stat failed: No such file or directory
+~~~
+Probably solvable by ESCAPE clause, but I don't quite see how yet..	
