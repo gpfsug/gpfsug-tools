@@ -1,0 +1,7 @@
+#! /bin/bash
+
+for NODECLASS in $( cat mmlsconfig.wien |grep '\[' |sed 's/\[\|\]//g' |sed 's/,/\n/g' |sort |uniq ) ; do 
+  echo
+  echo "[$NODECLASS]" ; 
+  ./mmlsconfigpernodeclass $NODECLASS;  
+done

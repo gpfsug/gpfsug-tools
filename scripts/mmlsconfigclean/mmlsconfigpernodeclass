@@ -1,0 +1,34 @@
+#! /bin/bash
+
+if [ "$1" == "" ] ; then echo
+  echo "$0 <nodeclass>"
+  exit 2
+fi
+
+NODECLASS=$1
+
+PRINT=false
+NOT_ENDED=true
+
+IFS=$'\n'
+for line in $( cat mmlsconfig.wien ) ; do
+  if [[ $line =~ "File systems in cluster" ]] ; then
+    PRINT=false
+    NOT_ENDED=false
+  fi
+
+  if [[ $line =~ \[ ]] ; then           ## Section Header
+    if [[ $line =~ (\[|,)$NODECLASS(\]|,) ]] ; then ## that matches
+      #echo "Section match: $line"
+      PRINT=true
+    else
+      # echo "Section no match: $line"
+      PRINT=false
+    fi
+  else                                  ## Normal line
+    if  $PRINT && $NOT_ENDED  ; then
+      echo "$line"
+    fi
+  fi
+
+done | sort -f
